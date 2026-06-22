@@ -61,7 +61,7 @@ codex_pid=$!
 # Prompt goes via stdin: --add-dir/--allowedTools are variadic and would otherwise
 # swallow a trailing positional prompt as an extra directory/tool.
 ( cd "$root" && printf '%s' "$PROMPT" | claude -p --model opus --effort high \
-    --strict-mcp-config --no-session-persistence \
+    --strict-mcp-config --no-session-persistence --permission-mode default \
     --add-dir "$root" --allowedTools Read Grep Glob \
     >"$claude_out" 2>"$tmp/claude.log" ) &
 claude_pid=$!
