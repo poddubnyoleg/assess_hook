@@ -1,0 +1,95 @@
+---
+name: assess
+description: Critically double-check your work — code, research, or plans
+---
+
+## Levels
+
+The Stop hook decides the level and tells you which to run:
+
+- **Normal** (`/assess`) — critical self-review in this session (the criteria below).
+- **Turbo** (`/assess turbo`) — **everything Normal does, PLUS** the cross-model panel.
+  Substantial work was done, so a deeper check is warranted.
+
+## Turbo: cross-model panel
+
+When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
+
+1. **Do the full Normal self-review first** — every relevant criterion in the
+   "Double-Check" section below. Turbo never skips it; the panel is added on top.
+2. Gather what to review into one file — **include NEW files, not just tracked edits**:
+   - git repo → `{ git diff HEAD; for f in $(git ls-files --others --exclude-standard); do echo "=== NEW: $f ==="; cat "$f"; done; } > /tmp/assess_artifact.txt`
+     (`git diff` alone omits untracked files, so a brand-new module would be invisible to the panel.)
+   - non-git → write the changed/new file(s) or the report into `/tmp/assess_artifact.txt`
+3. Run the panel:
+   ```
+   bash ~/.claude/skills/assess/panel.sh /tmp/assess_artifact.txt "<the original task>"
+   ```
+   This runs Codex (a different model) and a fresh Claude (clean context, no anchoring),
+   in parallel, each told to refute — not approve. Each is read-only.
+
+   - Run it **from the project directory** (the reviewers root in the current working
+     directory so they can Read/Grep the surrounding code; the artifact file may live
+     anywhere, e.g. /tmp). Override the root with `ASSESS_PANEL_ROOT=<dir>` if needed.
+   - The `<task>` you pass MUST be the **original request — the user's words or the
+     spec — verbatim**, NOT your summary of what you did. A paraphrase re-anchors the
+     reviewers to your own understanding and kills the main reason to run a fresh
+     Claude: catching "solved the wrong problem."
+   - Do NOT rewrite the reviewer instructions. The skeptical stance ("find problems,
+     judge independently") is fixed inside `panel.sh` on purpose — it is a guard, and
+     keeping it constant is what keeps the reviewers independent of you. You only supply
+     the task; you never author their lens.
+4. Reconcile by axis — **do NOT majority-vote** (two of the three voices are the same
+   lineage and correlate):
+   - **verifiable finding** (a real bug, a failing case, a spec mismatch) → check it
+     yourself, fix if real;
+   - **raised by one reviewer, missed by the other** → investigate it; cross-lineage
+     disagreement is signal, not a minority to overrule;
+   - **both agree it's fine** → high confidence, move on.
+5. Merge your self-review findings and the panel's findings into **one** list.
+
+Why two extra reviewers, and why they are not redundant:
+- **Codex** is a different model lineage → catches blind spots Claude shares across its
+  own runs.
+- **Fresh Claude** is the same model with no priming → catches anchoring and
+  "solved the wrong problem," which the working session cannot see by itself.
+
+## Double-Check
+
+Determine what to assess based on context:
+- **Code changes** (triggered by Stop hook or after implementation) → run `git diff` and review the changes
+- **Research/analysis** (after producing findings or a report) → verify the output quality
+- **Plan** (file highlighted in IDE or mentioned in conversation) → assess the approach
+
+Then critically assess using the relevant criteria:
+
+### For code:
+- **Correctness**: Logic errors, edge cases, missing error handling
+- **Simplicity**: Over-engineering, unnecessary abstractions
+- **Security**: Injection, secrets exposure, unsafe operations
+- **Consistency**: Does it match existing codebase patterns?
+
+### For research:
+- **Every claim cites a source** (query result, dashboard, URL, experiment ID)
+- **Numbers are internally consistent** — no contradictions between sections
+- **Conclusions follow from the data** — not extrapolated or hallucinated
+- **Gaps are flagged** — missing data or unanswered questions are called out, not silently skipped
+- **Recommendations are grounded** — tied to evidence, not generic advice
+
+### For plans:
+- **Simplification**: Can the approach be simpler?
+- **Integration points**: Dependencies correct? Edge cases covered?
+- **Completeness**: Anything important missed?
+
+**Important constraints**:
+
+- Do NOT bring up already discussed or deferred topics
+- Do NOT mention things that work fine but aren't ideal, unless otherwise stated
+- Do NOT just mention issues, do research before you report it
+- ONLY raise critical issues or genuine uncertainties
+- If you can't find critical issues, do NOT come up with questions for the sake of asking
+- Write one ungrouped list of questions including all your findings
+
+## Detailed user input:
+
+$ARGUMENTS
