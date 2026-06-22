@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 762" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7785"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="940" height="762" fill="#f6f8fb"/>
+
+  <text x="470" y="42" text-anchor="middle" font-size="24" font-weight="700" fill="#1f2328">assess-panel — how it works</text>
+  <text x="470" y="66" text-anchor="middle" font-size="13" fill="#57606a">a 3-level Stop-hook gate that adds a cross-model review on substantial work</text>
+
+  <!-- session -->
+  <rect x="320" y="88" width="300" height="50" rx="10" fill="#ddeeff" stroke="#4a90d9" stroke-width="1.5"/>
+  <text x="470" y="109" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Claude Code session</text>
+  <text x="470" y="127" text-anchor="middle" font-size="12" fill="#57606a">you do the work</text>
+
+  <line x1="470" y1="138" x2="470" y2="174" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="482" y="161" font-size="11" fill="#57606a">Stop (turn ends)</text>
+
+  <!-- classifier -->
+  <rect x="290" y="176" width="360" height="66" rx="10" fill="#efe6ff" stroke="#8a63d2" stroke-width="1.5"/>
+  <text x="470" y="203" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Stop hook · stop_assess.py</text>
+  <text x="470" y="224" text-anchor="middle" font-size="12" fill="#57606a">cheap Sonnet classifier picks the level</text>
+
+  <!-- fan-out -->
+  <line x1="470" y1="242" x2="160" y2="294" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="470" y1="242" x2="470" y2="294" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="470" y1="242" x2="780" y2="294" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- none -->
+  <rect x="60" y="296" width="200" height="58" rx="10" fill="#eaeef2" stroke="#aeb8c2" stroke-width="1.5"/>
+  <text x="160" y="320" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">none</text>
+  <text x="160" y="339" text-anchor="middle" font-size="12" fill="#57606a">trivial turn → skip</text>
+  <text x="160" y="375" text-anchor="middle" font-size="11" fill="#8a929c">done</text>
+
+  <!-- normal -->
+  <rect x="370" y="296" width="200" height="58" rx="10" fill="#d7f5dd" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="470" y="320" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">normal</text>
+  <text x="470" y="339" text-anchor="middle" font-size="12" fill="#57606a">in-session self-review</text>
+
+  <!-- turbo -->
+  <rect x="680" y="296" width="200" height="58" rx="10" fill="#ffeccc" stroke="#f0883e" stroke-width="1.5"/>
+  <text x="780" y="320" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">turbo</text>
+  <text x="780" y="339" text-anchor="middle" font-size="12" fill="#57606a">substantial artifact</text>
+
+  <line x1="780" y1="354" x2="652" y2="402" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- panel container -->
+  <rect x="170" y="404" width="600" height="168" rx="14" fill="#eef4ff" stroke="#9db4d6" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="190" y="430" font-size="13" font-weight="700" fill="#3b4350">turbo · cross-model panel — runs in parallel ‖</text>
+
+  <!-- codex -->
+  <rect x="200" y="444" width="260" height="86" rx="10" fill="#cdeeea" stroke="#1f9e8f" stroke-width="1.5"/>
+  <text x="330" y="474" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Codex</text>
+  <text x="330" y="496" text-anchor="middle" font-size="12" fill="#3b4350">gpt-5.5 · xhigh</text>
+  <text x="330" y="515" text-anchor="middle" font-size="11" fill="#57606a">different model lineage</text>
+
+  <text x="470" y="494" text-anchor="middle" font-size="22" font-weight="700" fill="#9db4d6">‖</text>
+
+  <!-- fresh claude -->
+  <rect x="480" y="444" width="260" height="86" rx="10" fill="#ffe0d4" stroke="#ec6547" stroke-width="1.5"/>
+  <text x="610" y="474" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Fresh Claude</text>
+  <text x="610" y="496" text-anchor="middle" font-size="12" fill="#3b4350">clean context · read-only</text>
+  <text x="610" y="515" text-anchor="middle" font-size="11" fill="#57606a">no anchoring</text>
+
+  <text x="470" y="554" text-anchor="middle" font-size="12" fill="#57606a">both prompted to refute, not praise · neither sees the other's output</text>
+
+  <line x1="470" y1="572" x2="470" y2="602" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="482" y="590" font-size="11" fill="#57606a">+ in-session self-review</text>
+
+  <!-- reconcile -->
+  <rect x="150" y="604" width="640" height="60" rx="10" fill="#efe6ff" stroke="#8a63d2" stroke-width="1.5"/>
+  <text x="470" y="630" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Reconcile by axis — not majority vote</text>
+  <text x="470" y="650" text-anchor="middle" font-size="12" fill="#57606a">verifiable → check yourself · cross-lineage disagreement → investigate</text>
+
+  <line x1="470" y1="664" x2="470" y2="694" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- findings -->
+  <rect x="190" y="696" width="560" height="50" rx="10" fill="#ddeeff" stroke="#4a90d9" stroke-width="1.5"/>
+  <text x="470" y="726" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2328">Findings → fix minor directly · ASK before significant changes</text>
+</svg>

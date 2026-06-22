@@ -6,6 +6,8 @@ Today `/assess` is Claude reviewing its own work. This adds a third level where 
 substantial change is also checked by **Codex** and by a **fresh Claude**, in
 parallel, before the task is considered done.
 
+![How assess-panel works](docs/how-it-works.svg)
+
 ## Three levels (the Stop hook picks one automatically)
 
 - **none** — trivial turn (a reply, a tiny edit). No review.
