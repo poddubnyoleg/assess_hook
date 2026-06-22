@@ -69,6 +69,13 @@ def analyze_transcript(path):
     def is_real_user_msg(r):
         if r.get("type") != "user":
             return False
+        # Harness-injected turns (our own "Run /assess" block reason, local-command
+        # caveats, etc.) are also type=user but carry isMeta=True. They are NOT real
+        # user turns. Counting them would advance the boundary past an /assess run that
+        # already happened this turn, so has_assess goes False and the hook re-blocks
+        # forever — the infinite loop this guard exists to prevent.
+        if r.get("isMeta") is True:
+            return False
         msg = r.get("message") or {}
         content = msg.get("content") if isinstance(msg, dict) else None
         if isinstance(content, str):
