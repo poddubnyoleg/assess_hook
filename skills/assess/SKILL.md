@@ -28,6 +28,16 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
    This runs Codex (a different model) and a fresh Claude (clean context, no anchoring),
    in parallel, each told to refute — not approve. Each is read-only.
 
+   - **Give the Bash call a long timeout** — set the Bash tool `timeout` to the max
+     (`600000` ms). Both reviewers run at **xhigh** effort and may Read/Grep the repo, so
+     they can take several minutes; the default 2-min Bash timeout would kill the panel
+     before they finish. The panel's own per-reviewer watchdog (540s) stays under that cap
+     and degrades gracefully. For an even longer budget, run the panel **backgrounded**
+     (no foreground cap) with `ASSESS_PANEL_TIMEOUT=1500` or higher.
+   - **A reviewer can TIME OUT or FAIL.** If the panel prints `>>> TIMED OUT` / `>>> FAILED`
+     for a reviewer, that lineage produced nothing — the panel is **incomplete**, not
+     clean. Say so explicitly when reconciling and, if it matters, re-run per the note
+     above; never read a missing reviewer as "all clear."
    - Run it **from the project directory** (the reviewers root in the current working
      directory so they can Read/Grep the surrounding code; the artifact file may live
      anywhere, e.g. /tmp). Override the root with `ASSESS_PANEL_ROOT=<dir>` if needed.
