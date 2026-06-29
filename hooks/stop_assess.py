@@ -160,8 +160,11 @@ def classify_with_llm(msg, tool_context):
         "Assistant's recent work this turn:\n---\n" + msg + tool_context +
         "\n---\n\nONE WORD: NONE, NORMAL, or TURBO"
     )
-    # Strip ANTHROPIC_API_KEY so claude CLI uses keychain OAuth instead
+    # Strip ANTHROPIC_API_KEY so claude CLI uses keychain OAuth instead.
+    # Mark this nested `claude -p` so its own Stop hook short-circuits (see the
+    # recursion guard in main) instead of spawning yet another classifier.
     env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    env["ASSESS_SKIP_HOOK"] = "1"
     try:
         result = subprocess.run(
             [
@@ -200,6 +203,18 @@ def classify_with_llm(msg, tool_context):
 d = json.load(sys.stdin)
 msg = d.get("last_assistant_message", "")
 transcript_path = d.get("transcript_path", "")
+
+# 0a. Recursion guard. The turbo panel (panel.sh) and this hook's own classifier
+# spawn nested `claude -p` subprocesses. Those nested instances inherit the user's
+# global Stop hook (this file), so when one finishes the hook fires on IT too. A
+# panel reviewer has only Read/Grep/Glob — it cannot run /assess — so a block tells
+# it to "Run /assess turbo," which it can't, and it confabulates a "panel couldn't
+# run, here's my self-review" message that REPLACES its real review in stdout. The
+# panel then captures that garbage and silently degrades to one lineage. Any process
+# launched by panel.sh / the classifier carries ASSESS_SKIP_HOOK=1, so detect it and
+# get out of the way immediately — never block (or re-classify) a nested assess run.
+if os.environ.get("ASSESS_SKIP_HOOK") == "1":
+    approve()
 
 # 0. Skip for headless agent runs (monitor, dashboard-analyzer)
 HEADLESS_AGENTS = {"monitor", "dashboard-analyzer"}

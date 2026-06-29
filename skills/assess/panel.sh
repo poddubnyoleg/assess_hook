@@ -22,6 +22,22 @@
 
 set -u
 
+# The fresh-Claude reviewer below is a nested `claude -p`. It inherits the user's
+# global Stop hook (stop_assess.py), which can fire when the reviewer finishes and
+# BLOCK it with "Run /assess turbo." A read-only reviewer can't run the panel, so it
+# confabulates a "panel couldn't run, here's my self-review" message that overwrites
+# its real review in stdout — and the panel silently collapses to one lineage. This
+# marker tells stop_assess.py to approve immediately for anything we spawn, so the
+# reviewer returns its actual review. Harmless for codex (it doesn't run the hook).
+export ASSESS_SKIP_HOOK=1
+
+# Strip ANTHROPIC_API_KEY so the nested `claude` reviewer authenticates via keychain
+# OAuth, exactly as the hook's own classifier does (stop_assess.py). If the parent
+# session carries a stale/expired/rate-limited key, the reviewer would otherwise
+# inherit it and fail — empty/garbage output read as "the reviewer didn't fire",
+# a silent one-lineage collapse independent of the Stop-hook recursion above.
+unset ANTHROPIC_API_KEY
+
 artifact="${1:-}"
 shift || true
 task="$*"
