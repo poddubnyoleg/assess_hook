@@ -9,6 +9,9 @@ Levels:
 Design:
 - Scopes "recent" to lines after the last user message in the transcript
 - If /assess already ran this turn -> approve (no recursion)
+- If we already prompted for /assess this cycle and no new substantial work
+  followed -> approve (prompt once per cycle; don't loop when the assistant
+  answers with an inline review instead of re-running the skill)
 - A cheap Sonnet call (low effort, no tools) classifies the level
 - Conservative defaults: unsure NONE/NORMAL -> NONE; unsure NORMAL/TURBO -> NORMAL
 """
@@ -45,9 +48,9 @@ def block_turbo():
 
 
 def analyze_transcript(path):
-    """Parse transcript; return (has_tools, has_assess, recent_assistant_text)."""
+    """Parse transcript; return (has_tools, has_assess, recent_text, already_prompted)."""
     if not path:
-        return False, False, ""
+        return False, False, "", False
     try:
         with open(path, "rb") as f:
             f.seek(0, 2)
@@ -55,7 +58,7 @@ def analyze_transcript(path):
             f.seek(max(0, size - 500_000))
             lines = f.read().decode("utf-8", errors="replace").splitlines()
     except Exception:
-        return False, False, ""
+        return False, False, "", False
 
     records = []
     for line in lines:
@@ -95,15 +98,36 @@ def analyze_transcript(path):
     # assistant text — so scan the whole slice, not just assistant text blocks.
     has_assess = "launching skill: assess" in json.dumps(recent).lower()
 
+    # Find the last assess prompt WE already injected this turn. Every block emits
+    # a reason containing "Run /assess"; the harness feeds it back as an isMeta
+    # user turn (NOT a real user message — see is_real_user_msg). If one already
+    # sits in this slice, we have asked for /assess at least once this cycle. When
+    # the assistant answers with an inline review/explanation instead of re-running
+    # the skill (a reasonable choice for a restatement), has_assess stays False and
+    # a re-classification keeps seeing the same substantial artifact -> re-blocks
+    # forever. Track this prompt's position so we can tell whether any NEW
+    # substantial work landed after it.
+    last_prompt_idx = -1
+    for i, r in enumerate(recent):
+        if r.get("type") != "user" or r.get("isMeta") is not True:
+            continue
+        m = r.get("message") or {}
+        c = m.get("content") if isinstance(m, dict) else None
+        if isinstance(c, list):
+            c = " ".join(b.get("text", "") for b in c if isinstance(b, dict))
+        if isinstance(c, str) and "run /assess" in c.lower():
+            last_prompt_idx = i
+
     edit_tools = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
     has_tools = False
+    edit_after_prompt = False
     parts = []  # interleaved assistant text + edit summaries in chronological order
 
     def snippet(s, n=200):
         s = (s or "").replace("\n", " ")
         return s[:n] + ("…" if len(s) > n else "")
 
-    for r in recent:
+    for i, r in enumerate(recent):
         if r.get("type") != "assistant":
             continue
         msg = r.get("message") or {}
@@ -124,6 +148,8 @@ def analyze_transcript(path):
                 path = inp.get("file_path") or inp.get("notebook_path") or ""
                 if name in edit_tools:
                     has_tools = True
+                    if i > last_prompt_idx:
+                        edit_after_prompt = True
                     if name == "Edit":
                         parts.append(
                             f"[Edit {path}] {snippet(inp.get('old_string'))} → "
@@ -143,7 +169,10 @@ def analyze_transcript(path):
                         parts.append(f"[Bash] {snippet(cmd, 300)}")
 
     recent_text = "\n\n".join(parts).strip()
-    return has_tools, has_assess, recent_text
+    # We already prompted for /assess this cycle and no new substantial work
+    # (file Edit/Write) landed afterward -> a re-block would only loop.
+    already_prompted = last_prompt_idx >= 0 and not edit_after_prompt
+    return has_tools, has_assess, recent_text, already_prompted
 
 
 def classify_with_llm(msg, tool_context):
@@ -233,13 +262,22 @@ if "launching skill: assess" in msg.lower():
     approve()
 
 # 2. Analyze transcript since last user message
-has_tools, has_assess, recent_text = analyze_transcript(transcript_path)
+has_tools, has_assess, recent_text, already_prompted = analyze_transcript(transcript_path)
 
 # Prefer the full recent assistant message queue over just the last message
 classify_msg = recent_text or msg
 
 # 3. /assess already ran this turn -> approve (prevents recursion)
 if has_assess:
+    approve()
+
+# 3b. We already prompted for /assess this cycle and the assistant responded
+# without producing new substantial work (no file Edit/Write afterward). One
+# prompt per work-cycle is enough: re-blocking only loops, because the classifier
+# keeps re-flagging the same artifact plus the review prose the assistant wrote in
+# reply to the first prompt. The assistant already chose how to handle the prompt;
+# honor that and approve.
+if already_prompted:
     approve()
 
 # 4. Short text-only message -> approve (text-only replies aren't shipped work)
