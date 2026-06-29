@@ -57,6 +57,8 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
      disagreement is signal, not a minority to overrule;
    - **both agree it's fine** → high confidence, move on.
 5. Merge your self-review findings and the panel's findings into **one** list.
+6. **Close with the full-work summary** (see "Finish with a self-contained summary"
+   below) — not just the panel delta.
 
 Why two extra reviewers, and why they are not redundant:
 - **Codex** is a different model lineage → catches blind spots Claude shares across its
@@ -99,6 +101,27 @@ Then critically assess using the relevant criteria:
 - ONLY raise critical issues or genuine uncertainties
 - If you can't find critical issues, do NOT come up with questions for the sake of asking
 - Write one ungrouped list of questions including all your findings
+
+## Finish with a self-contained summary
+
+Assess is the LAST thing that runs before you hand back to the user, so your final
+message is what they read at the bottom of the screen. Make it stand on its own — the
+user should NOT have to scroll up to recover what was actually produced.
+
+After you have applied fixes and reconciled findings, write ONE closing summary that
+recaps the **whole work cycle**, not just the assessment:
+
+1. **Lead with the deliverable** — the actual results, analysis, numbers, or what the
+   code now does. This is the part that was scrolled off-screen by the assess output;
+   restate it (compressed, but complete enough to stand alone), don't assume it's still
+   visible.
+2. **Then the assessment outcome** — what was checked, what you fixed, and what (if
+   anything) the panel/self-review flagged.
+3. **Then anything still open** — unresolved findings, caveats, or offered next steps.
+
+Keep it dense, not long: a faithful compression of the work, not a re-paste. The test
+is simple — if reading only this final message leaves the user reaching for the scroll
+bar to understand the result, it's incomplete.
 
 ## Detailed user input:
 
