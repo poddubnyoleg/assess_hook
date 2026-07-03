@@ -6,6 +6,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 CLAUDE="$HOME/.claude"
+BACKUPS="$CLAUDE/backups"
 ts="$(date +%Y%m%d-%H%M%S)"
 
 mkdir -p "$CLAUDE/hooks" "$CLAUDE/skills"
@@ -16,8 +17,12 @@ link() { # link <src> <dst>
   if [ -L "$dst" ]; then
     rm "$dst"
   elif [ -e "$dst" ]; then
-    mv "$dst" "$dst.bak.$ts"
-    echo "backed up: $dst -> $dst.bak.$ts"
+    # Back up OUTSIDE ~/.claude/skills: a directory left in there (e.g.
+    # skills/assess.bak.<ts>) is picked up by Claude Code as a live,
+    # selectable skill and pollutes the skill list in every session.
+    mkdir -p "$BACKUPS"
+    mv "$dst" "$BACKUPS/$(basename "$dst").bak.$ts"
+    echo "backed up: $dst -> $BACKUPS/$(basename "$dst").bak.$ts"
   fi
   ln -s "$src" "$dst"
   echo "linked:   $dst -> $src"
@@ -28,5 +33,6 @@ link "$here/skills/assess"        "$CLAUDE/skills/assess"
 
 echo
 echo "Done."
-echo "The Stop hook in ~/.claude/settings.json already runs python3 ~/.claude/hooks/stop_assess.py."
+echo "If not already registered, add the Stop hook once to ~/.claude/settings.json:"
+echo '  {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/stop_assess.py"}]}]}}'
 echo "Codex uses model/effort from ~/.codex/config.toml (currently gpt-5.5 / xhigh)."

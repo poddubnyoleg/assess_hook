@@ -7,12 +7,28 @@ Levels:
             cross-model panel — Codex + a fresh Claude)
 
 Design:
+- stop_hook_active=True -> approve. The harness sets it on every Stop that
+  follows a stop-hook block in the same chain, so this enforces "prompt once
+  per cycle" STRUCTURALLY: however the agent handled the prompt (ran the
+  skill, reviewed inline, applied fixes, declined), its response is final.
+  This closes every assess-of-assess loop variant — including the one where
+  an inline review applies a fix and a re-classification flags the review
+  prose + fix edits as fresh work. (Field verified against the installed CLI
+  bundle, 2.1.199 — not yet in the public docs; read with .get() so a CLI
+  that stops sending it degrades to the guards below, not to a loop.)
 - Scopes "recent" to lines after the last user message in the transcript
-- If /assess already ran this turn -> approve (no recursion)
-- If we already prompted for /assess this cycle and no new substantial work
-  followed -> approve (prompt once per cycle; don't loop when the assistant
-  answers with an inline review instead of re-running the skill)
+- If /assess already ran this cycle -> approve. This still matters after the
+  guard above: a user-typed /assess ends its OWN chain (stop_hook_active is
+  False there). Detection is STRUCTURAL — a Skill tool_use with skill=assess,
+  the injected skill body, or a tool_result that IS the launch marker — never
+  a substring over the dumped slice: file contents that merely QUOTE the
+  marker (e.g. this very file being Read) must not count as a run.
+- A cycle with no tool calls at all is conversation, not shipped work ->
+  approve without classifying. (A long recap/summary getting classified
+  NORMAL was the observed loop trigger.)
 - A cheap Sonnet call (low effort, no tools) classifies the level
+- Classifier unavailable -> approve (fail-open, with a stderr note): a missed
+  review costs less than a broken classifier blocking every Stop
 - Conservative defaults: unsure NONE/NORMAL -> NONE; unsure NORMAL/TURBO -> NORMAL
 """
 import sys
@@ -47,10 +63,75 @@ def block_turbo():
     sys.exit(0)
 
 
+def _text_of(content):
+    """Flatten a message content field (str or block list) to plain text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(b["text"] for b in content
+                        if isinstance(b, dict) and isinstance(b.get("text"), str))
+    return ""
+
+
+def is_assess_launch(r):
+    """True if this record IS an /assess run — not text that merely mentions one."""
+    msg = r.get("message") or {}
+    content = msg.get("content") if isinstance(msg, dict) else None
+
+    if r.get("type") == "assistant" and isinstance(content, list):
+        # The model invoked the Skill tool with skill=assess.
+        for b in content:
+            if (isinstance(b, dict) and b.get("type") == "tool_use"
+                    and b.get("name") == "Skill"
+                    and "assess" in str((b.get("input") or {}).get("skill", "")).lower()):
+                return True
+
+    if r.get("type") == "user":
+        if isinstance(content, list):
+            # The harness ack for a Skill launch: a tool_result whose content
+            # STARTS with the marker. startswith, not `in` — Read/Grep output
+            # quoting the marker mid-file must not match.
+            for b in content:
+                if not (isinstance(b, dict) and b.get("type") == "tool_result"):
+                    continue
+                cc = b.get("content")
+                if isinstance(cc, str):
+                    texts = [cc]
+                elif isinstance(cc, list):
+                    texts = [t.get("text", "") for t in cc if isinstance(t, dict)]
+                else:
+                    texts = []
+                for t in texts:
+                    if t.strip().lower().startswith("launching skill: assess"):
+                        return True
+        text = _text_of(content).lower()
+        # The injected skill body (an isMeta turn) — how a user-typed /assess
+        # shows up inside the cycle.
+        if r.get("isMeta") is True and "base directory for this skill:" in text \
+                and "skills/assess" in text:
+            return True
+        # A user-typed slash-command record.
+        if "<command-name>assess" in text or "<command-name>/assess" in text:
+            return True
+    return False
+
+
 def analyze_transcript(path):
-    """Parse transcript; return (has_tools, has_assess, recent_text, already_prompted)."""
+    """Parse transcript tail.
+
+    Returns (ok, has_edits, any_tools, has_assess, prior_assess, prompted,
+    recent_text):
+    - ok           whether the transcript was readable and non-empty
+    - has_edits    file Edit/Write tools ran after the last real user message
+    - any_tools    ANY tool ran after the last real user message
+    - has_assess   /assess ran after the last real user message
+    - prior_assess /assess ran BEFORE it (earlier in the session/window)
+    - prompted     OUR "Run /assess" block reason already sits in this cycle
+    - recent_text  assistant text + edit summaries since then, chronological
+    """
+    empty = (False, False, False, False, False, False, "")
     if not path:
-        return False, False, "", False
+        return empty
     try:
         with open(path, "rb") as f:
             f.seek(0, 2)
@@ -58,7 +139,7 @@ def analyze_transcript(path):
             f.seek(max(0, size - 500_000))
             lines = f.read().decode("utf-8", errors="replace").splitlines()
     except Exception:
-        return False, False, "", False
+        return empty
 
     records = []
     for line in lines:
@@ -66,6 +147,8 @@ def analyze_transcript(path):
             records.append(json.loads(line))
         except Exception:
             continue
+    if not records:
+        return empty
 
     # Scope to records after the last *real* user message.
     # Tool results also have type=user; ignore those.
@@ -92,42 +175,33 @@ def analyze_transcript(path):
         if is_real_user_msg(r):
             last_user_idx = i
     recent = records[last_user_idx + 1:] if last_user_idx >= 0 else records
+    prior = records[:last_user_idx + 1] if last_user_idx >= 0 else []
 
-    # Detect a prior /assess run anywhere in the recent slice. The marker
-    # "Launching skill: assess" lives in tool_result records (type=user), NOT in
-    # assistant text — so scan the whole slice, not just assistant text blocks.
-    has_assess = "launching skill: assess" in json.dumps(recent).lower()
+    has_assess = any(is_assess_launch(r) for r in recent)
+    # Classifier hint only: an assess earlier in the session means the bulk of
+    # `git diff HEAD` may already be reviewed and only newer work matters.
+    prior_assess = any(is_assess_launch(r) for r in prior)
 
-    # Find the last assess prompt WE already injected this turn. Every block emits
-    # a reason containing "Run /assess"; the harness feeds it back as an isMeta
-    # user turn (NOT a real user message — see is_real_user_msg). If one already
-    # sits in this slice, we have asked for /assess at least once this cycle. When
-    # the assistant answers with an inline review/explanation instead of re-running
-    # the skill (a reasonable choice for a restatement), has_assess stays False and
-    # a re-classification keeps seeing the same substantial artifact -> re-blocks
-    # forever. Track this prompt's position so we can tell whether any NEW
-    # substantial work landed after it.
-    last_prompt_idx = -1
-    for i, r in enumerate(recent):
+    # Our own injected block reason ("Run /assess ...") comes back as an isMeta
+    # user turn. Its presence in THIS cycle's slice means we already prompted.
+    def is_our_prompt(r):
         if r.get("type") != "user" or r.get("isMeta") is not True:
-            continue
+            return False
         m = r.get("message") or {}
-        c = m.get("content") if isinstance(m, dict) else None
-        if isinstance(c, list):
-            c = " ".join(b.get("text", "") for b in c if isinstance(b, dict))
-        if isinstance(c, str) and "run /assess" in c.lower():
-            last_prompt_idx = i
+        return "run /assess" in _text_of(m.get("content") if isinstance(m, dict) else None).lower()
+
+    prompted = any(is_our_prompt(r) for r in recent)
 
     edit_tools = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
-    has_tools = False
-    edit_after_prompt = False
+    has_edits = False
+    any_tools = False
     parts = []  # interleaved assistant text + edit summaries in chronological order
 
     def snippet(s, n=200):
         s = (s or "").replace("\n", " ")
         return s[:n] + ("…" if len(s) > n else "")
 
-    for i, r in enumerate(recent):
+    for r in recent:
         if r.get("type") != "assistant":
             continue
         msg = r.get("message") or {}
@@ -143,46 +217,45 @@ def analyze_transcript(path):
                 if text.strip():
                     parts.append(text)
             elif btype == "tool_use":
+                any_tools = True
                 name = block.get("name", "")
                 inp = block.get("input") or {}
-                path = inp.get("file_path") or inp.get("notebook_path") or ""
+                path_ = inp.get("file_path") or inp.get("notebook_path") or ""
                 if name in edit_tools:
-                    has_tools = True
-                    if i > last_prompt_idx:
-                        edit_after_prompt = True
+                    has_edits = True
                     if name == "Edit":
                         parts.append(
-                            f"[Edit {path}] {snippet(inp.get('old_string'))} → "
+                            f"[Edit {path_}] {snippet(inp.get('old_string'))} → "
                             f"{snippet(inp.get('new_string'))}"
                         )
                     elif name == "Write":
                         body = inp.get("content", "") or ""
-                        parts.append(f"[Write {path}] ({len(body)} chars) {snippet(body)}")
+                        parts.append(f"[Write {path_}] ({len(body)} chars) {snippet(body)}")
                     elif name == "MultiEdit":
                         edits = inp.get("edits") or []
-                        parts.append(f"[MultiEdit {path}] {len(edits)} edit(s)")
+                        parts.append(f"[MultiEdit {path_}] {len(edits)} edit(s)")
                     elif name == "NotebookEdit":
-                        parts.append(f"[NotebookEdit {path}] {snippet(inp.get('new_source'))}")
+                        parts.append(f"[NotebookEdit {path_}] {snippet(inp.get('new_source'))}")
                 elif name == "Bash":
                     cmd = inp.get("command", "") or ""
                     if any(tok in cmd for tok in ("rm ", "mv ", "cp ", ">", ">>", "mkdir", "touch")):
                         parts.append(f"[Bash] {snippet(cmd, 300)}")
 
     recent_text = "\n\n".join(parts).strip()
-    # We already prompted for /assess this cycle and no new substantial work
-    # (file Edit/Write) landed afterward -> a re-block would only loop.
-    already_prompted = last_prompt_idx >= 0 and not edit_after_prompt
-    return has_tools, has_assess, recent_text, already_prompted
+    return True, has_edits, any_tools, has_assess, prior_assess, prompted, recent_text
 
 
 def classify_with_llm(msg, tool_context):
     """Return one of 'NONE', 'NORMAL', 'TURBO', or None on error."""
     prompt = (
         "Classify the work the assistant just did this turn. Output ONE word.\n\n"
-        "NONE   — trivial: a reply, an explanation, a tiny edit. No review needed.\n"
-        "NORMAL — real but bounded work: a function, a bugfix, a moderate edit. "
+        "NONE   — trivial: a reply, an explanation, a tiny edit. Also NONE: the turn "
+        "only summarizes, recaps, explains, or reviews work done EARLIER (including "
+        "applying fixes from a just-finished review) without producing a new artifact. "
+        "No review needed.\n"
+        "NORMAL — real but bounded NEW work: a function, a bugfix, a moderate edit. "
         "A quick self-review is warranted.\n"
-        "TURBO  — a substantial artifact: a new module or file, a large or multi-file "
+        "TURBO  — a substantial NEW artifact: a new module or file, a large or multi-file "
         "refactor, a full research report. A deep cross-model review is warranted.\n\n"
         "Be conservative: if unsure between NONE and NORMAL pick NONE; if unsure between "
         "NORMAL and TURBO pick NORMAL.\n\n"
@@ -208,7 +281,10 @@ def classify_with_llm(msg, tool_context):
             input=prompt,
             capture_output=True,
             text=True,
-            timeout=90,
+            # Claude Code kills a hook command at 60s by default; this budget must
+            # stay UNDER that so a slow classifier ends as our fail-open, not as
+            # the harness killing the hook mid-decision.
+            timeout=50,
             env=env,
         )
         if result.returncode != 0:
@@ -245,47 +321,66 @@ transcript_path = d.get("transcript_path", "")
 if os.environ.get("ASSESS_SKIP_HOOK") == "1":
     approve()
 
-# 0. Skip for headless agent runs (monitor, dashboard-analyzer)
+# 0b. We already blocked once in this stop-chain. stop_hook_active is True on
+# every Stop that follows a stop-hook block, so approving here caps the hook at
+# ONE prompt per cycle no matter how the agent responded (skill run, inline
+# review, fixes, or a refusal) — the structural fix for "assess the assessment".
+if d.get("stop_hook_active"):
+    approve()
+
+# 0c. Skip for headless agent runs (monitor, dashboard-analyzer)
 HEADLESS_AGENTS = {"monitor", "dashboard-analyzer"}
 if transcript_path:
     try:
         with open(transcript_path, "rb") as f:
-            tail = f.read()[-5000:].decode("utf-8", errors="replace")
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 5000))
+            tail = f.read().decode("utf-8", errors="replace")
         for agent_name in HEADLESS_AGENTS:
             if f'"agentSetting": "{agent_name}"' in tail or f'"agentSetting":"{agent_name}"' in tail:
                 approve()
     except Exception:
         pass
 
-# 1. Launching /assess right now -> approve (covers both normal and turbo)
-if "launching skill: assess" in msg.lower():
-    approve()
-
-# 2. Analyze transcript since last user message
-has_tools, has_assess, recent_text, already_prompted = analyze_transcript(transcript_path)
+# 1. Analyze transcript since last user message
+ok, has_tools, any_tools, has_assess, prior_assess, prompted, recent_text = \
+    analyze_transcript(transcript_path)
 
 # Prefer the full recent assistant message queue over just the last message
 classify_msg = recent_text or msg
 
-# 3. /assess already ran this turn -> approve (prevents recursion)
+# 2. /assess already ran this cycle -> approve. Needed on top of 0b: a
+# user-typed /assess ends its own fresh chain, where stop_hook_active is False.
 if has_assess:
     approve()
 
-# 3b. We already prompted for /assess this cycle and the assistant responded
-# without producing new substantial work (no file Edit/Write afterward). One
-# prompt per work-cycle is enough: re-blocking only loops, because the classifier
-# keeps re-flagging the same artifact plus the review prose the assistant wrote in
-# reply to the first prompt. The assistant already chose how to handle the prompt;
-# honor that and approve.
-if already_prompted:
+# 2b. Backstop for a CLI that stops sending stop_hook_active: if OUR "Run
+# /assess" prompt already sits in this cycle's slice, we prompted once —
+# approve no matter how the agent responded. Deliberately NO edit-after-prompt
+# condition: fixes applied in response to the prompt are part of the response,
+# not new work to re-review — the old guard's edit condition is exactly what
+# let inline-review-plus-fix loop forever. Redundant while 0b works; harmless.
+if prompted:
     approve()
 
-# 4. Short text-only message -> approve (text-only replies aren't shipped work)
+# 3. No tool calls at all this cycle -> conversation, not shipped work. There is
+# no artifact to review, however long or technical the prose reads — a recap of
+# finished work classified as NORMAL was the observed loop trigger. Research
+# reports still reach the classifier: producing one always involves tool calls.
+if ok and not any_tools:
+    approve()
+
+# 4. Short text without file edits -> approve
 if len(classify_msg) < 250 and not has_tools:
     approve()
 
 # 5. Classify via claude CLI
-tool_context = "\n[NOTE: This turn included file Edit/Write tool calls.]" if has_tools else ""
+tool_context = ""
+if has_tools:
+    tool_context += "\n[NOTE: This turn included file Edit/Write tool calls.]"
+if prior_assess:
+    tool_context += ("\n[NOTE: An /assess review already ran earlier in this session; "
+                     "only work NEWER than that review warrants another one.]")
 # Keep head + tail when long: early [Write]/[Edit] summaries (the substantial-artifact
 # signal) sit at the head and would be lost by a tail-only cut, biasing toward NORMAL.
 if len(classify_msg) > 8000:
@@ -299,10 +394,9 @@ elif level == "NORMAL":
     block_normal()
 elif level == "NONE":
     approve()
-# None = classifier error, fall through to heuristic
 
-# 6. Fallback heuristic (conservative: never auto-escalates to turbo)
-if has_tools or len(classify_msg) > 500:
-    block_normal()
-else:
-    approve()
+# 6. Classifier unavailable (CLI error, timeout, or non-compliant output): fail
+# OPEN. A missed review costs less than a broken classifier blocking every Stop —
+# an infra hiccup must never manufacture a review demand.
+sys.stderr.write("stop_assess: classifier unavailable; approving (fail-open)\n")
+approve()

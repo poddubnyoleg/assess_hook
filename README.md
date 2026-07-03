@@ -75,7 +75,7 @@ Review the files, then:
 bash install.sh
 ```
 
-It backs up any existing `~/.claude/hooks/stop_assess.py` and `~/.claude/skills/assess`, then symlinks this repo in their place (so edits here go live immediately). You must also register the Stop hook once in `~/.claude/settings.json`:
+It backs up any existing `~/.claude/hooks/stop_assess.py` and `~/.claude/skills/assess` into `~/.claude/backups/` (outside the skills dir, so backups don't show up as live skills), then symlinks this repo in their place (so edits here go live immediately). You must also register the Stop hook once in `~/.claude/settings.json`:
 
 ```json
 {
@@ -90,5 +90,8 @@ It backs up any existing `~/.claude/hooks/stop_assess.py` and `~/.claude/skills/
 ## Notes
 
 - Both reviewers run **read-only** — they cannot edit your files.
-- Per-reviewer timeout defaults to 300s (`ASSESS_PANEL_TIMEOUT` to override).
+- Per-reviewer timeout defaults to 540s (`ASSESS_PANEL_TIMEOUT` to override).
 - The panel reviewers root in the project directory (`$PWD`, or `ASSESS_PANEL_ROOT`) so they can read the surrounding code, not just the artifact text.
+- The hook prompts **at most once per stop-chain**: on any Stop that follows its own block (`stop_hook_active`), it approves — however the agent handled the prompt. This is what makes "assess the assessment" loops structurally impossible.
+- The hook **fails open**: if the classifier CLI errors or times out, the turn is approved with a stderr note — an infra hiccup never manufactures a review demand.
+- Turns with **no tool calls at all** (a reply, a recap, an explanation) are approved without classifying — there is no artifact to review.

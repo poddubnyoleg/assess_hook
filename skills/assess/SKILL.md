@@ -17,13 +17,18 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
 
 1. **Do the full Normal self-review first** — every relevant criterion in the
    "Double-Check" section below. Turbo never skips it; the panel is added on top.
-2. Gather what to review into one file — **include NEW files, not just tracked edits**:
-   - git repo → `{ git diff HEAD; for f in $(git ls-files --others --exclude-standard); do echo "=== NEW: $f ==="; cat "$f"; done; } > /tmp/assess_artifact.txt`
+2. Gather what to review into one file — **include NEW files, not just tracked edits**.
+   Put it in your session scratchpad directory if you have one, else under `$TMPDIR`
+   (bare `/tmp` is typically NOT writable under the Bash sandbox, and a fixed name
+   would collide across concurrent sessions). Below, `$ART` stands for that absolute
+   path, e.g. `ART="$TMPDIR/assess_artifact.txt"` — reuse the SAME absolute path in
+   step 3 (each Bash call is a fresh shell, so don't rely on the variable surviving):
+   - git repo → `{ git diff HEAD; git ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do echo "=== NEW: $f ==="; cat "$f"; done; } > "$ART"`
      (`git diff` alone omits untracked files, so a brand-new module would be invisible to the panel.)
-   - non-git → write the changed/new file(s) or the report into `/tmp/assess_artifact.txt`
+   - non-git → write the changed/new file(s) or the report into `$ART`
 3. Run the panel:
    ```
-   bash ~/.claude/skills/assess/panel.sh /tmp/assess_artifact.txt "<the original task>"
+   bash ~/.claude/skills/assess/panel.sh "$ART" "<the original task>"
    ```
    This runs Codex (a different model) and a fresh Claude (clean context, no anchoring),
    in parallel, each told to refute — not approve. Each is read-only.
