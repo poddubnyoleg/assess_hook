@@ -36,9 +36,19 @@ def meta(text):
     return {"type": "user", "isMeta": True, "message": {"role": "user", "content": text}}
 
 
-def tool_result(text):
-    return {"type": "user", "message": {"role": "user",
-            "content": [{"type": "tool_result", "content": text}]}}
+def tool_result(text, tool_use_id=None):
+    block = {"type": "tool_result", "content": text}
+    if tool_use_id:
+        block["tool_use_id"] = tool_use_id
+    return {"type": "user", "message": {"role": "user", "content": [block]}}
+
+
+def task_notification(tool_use_id, status="completed"):
+    # Delivered completion notification — a PLAIN user record (no isMeta),
+    # the CLI 2.1.199 shape observed in the field.
+    return user(f"<task-notification>\n<task-id>x1</task-id>\n"
+                f"<tool-use-id>{tool_use_id}</tool-use-id>\n"
+                f"<status>{status}</status>\n</task-notification>")
 
 
 def a_text(text):
@@ -46,9 +56,11 @@ def a_text(text):
             "content": [{"type": "text", "text": text}]}}
 
 
-def a_tool(name, inp):
-    return {"type": "assistant", "message": {"role": "assistant",
-            "content": [{"type": "tool_use", "name": name, "input": inp}]}}
+def a_tool(name, inp, id=None):
+    block = {"type": "tool_use", "name": name, "input": inp}
+    if id:
+        block["id"] = id
+    return {"type": "assistant", "message": {"role": "assistant", "content": [block]}}
 
 
 WORK = [
@@ -164,6 +176,158 @@ class HookTest(unittest.TestCase):
         decision, called = self.run_hook(records, level="NORMAL", stop_hook_active=False)
         self.assertEqual(decision["decision"], "approve")
         self.assertFalse(called)
+
+    # --- background work in flight ---
+
+    BG_LAUNCH = [
+        user("research the store APIs"),
+        a_tool("Agent", {"description": "Apple research", "prompt": "..."}, id="toolu_apple"),
+        tool_result("Async agent launched successfully. (This tool result is "
+                    "internal metadata — never quote it.)", "toolu_apple"),
+        a_tool("Agent", {"description": "Google research", "prompt": "..."}, id="toolu_google"),
+        tool_result("Async agent launched successfully. (This tool result is "
+                    "internal metadata — never quote it.)", "toolu_google"),
+        a_text("Two research agents are running; I'll synthesize when they "
+               "return. Meanwhile I confirmed the repo has no store-API "
+               "integration. " + LONG_PROSE),
+    ]
+
+    def test_bg_launch_in_flight_defers_without_classifying(self):
+        # The observed failure: Stop fires right after background agents
+        # launch — nothing to review yet, and blocking burns the cycle's one
+        # prompt so the eventual deliverable ships unreviewed.
+        decision, called = self.run_hook(self.BG_LAUNCH, level="NORMAL")
+        self.assertEqual(decision["decision"], "approve")
+        self.assertFalse(called)
+
+    def test_bg_partial_completion_still_defers(self):
+        # The mid-flight turn USES TOOLS (reads the finished agent's output),
+        # so if the notification wrongly advanced the cycle boundary, the
+        # launches would leave the slice, pending would read False, and this
+        # turn would reach the classifier and block. Deferral here pins BOTH
+        # behaviors: notifications don't start a cycle, and one unanswered
+        # launch is enough to defer.
+        records = self.BG_LAUNCH + [
+            task_notification("toolu_google"),
+            a_tool("Read", {"file_path": "/tmp/tasks/google.output"}),
+            tool_result("## Google Play API findings\n" + LONG_PROSE),
+            a_text("Google results are in; still waiting on Apple. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="NORMAL")
+        self.assertEqual(decision["decision"], "approve")
+        self.assertFalse(called)
+
+    def test_bg_bash_without_edits_defers(self):
+        # A background command with no shipped work yet: pure wait — defer.
+        records = [
+            user("run the long benchmark"),
+            a_tool("Bash", {"command": "bench.sh", "run_in_background": True},
+                   id="toolu_bench"),
+            tool_result("Command running in background with ID: abc123. Output "
+                        "is being written to: /tmp/tasks/abc123.output.", "toolu_bench"),
+            a_text("Benchmark started; I'll analyze when it completes. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="NORMAL")
+        self.assertEqual(decision["decision"], "approve")
+        self.assertFalse(called)
+
+    def test_bg_bash_with_edits_still_classifies(self):
+        # A dev-server-style command never exits by design; it must not
+        # suppress review of a real module shipped in the same cycle.
+        records = [
+            user("start the dev server and build the widget"),
+            a_tool("Bash", {"command": "npm run dev", "run_in_background": True},
+                   id="toolu_server"),
+            tool_result("Command running in background with ID: srv1. Output "
+                        "is being written to: /tmp/tasks/srv1.output.", "toolu_server"),
+            a_tool("Write", {"file_path": "/x/widget.py", "content": "class Widget: pass\n" * 60}),
+            a_text("Server running; widget module written. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="NORMAL")
+        self.assertEqual(decision["decision"], "block")
+        self.assertTrue(called)
+
+    def test_ack_text_from_foreground_tool_is_not_a_launch(self):
+        # A foreground `cat` of a file whose first line IS an ack must not
+        # read as in-flight work: the ack's id must belong to a tool that can
+        # launch background tasks (Agent, or Bash with run_in_background).
+        records = [
+            user("show me that task output file"),
+            a_tool("Bash", {"command": "cat /tmp/notes.txt"}, id="toolu_cat"),
+            tool_result("Command running in background with ID: fake. (quoted "
+                        "file content, not a real ack)", "toolu_cat"),
+            a_tool("Edit", {"file_path": "/x/hook.py", "old_string": "a", "new_string": "b"}),
+            a_text("Cleaned up the notes handling. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="NORMAL")
+        self.assertEqual(decision["decision"], "block")
+        self.assertTrue(called)
+
+    def test_errored_workflow_launch_is_not_in_flight(self):
+        # A Workflow whose call itself errors (bad script) starts nothing and
+        # will never notify — it must not suppress review for the cycle.
+        records = [
+            user("run the audit workflow"),
+            {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "toolu_wf_bad", "name": "Workflow",
+                 "input": {"script": "syntax error"}}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_wf_bad",
+                 "is_error": True, "content": "SyntaxError: unexpected token"}]}},
+            a_tool("Write", {"file_path": "/x/audit.md", "content": "manual audit " * 100}),
+            a_text("Workflow script was broken; did the audit inline instead. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="NORMAL")
+        self.assertEqual(decision["decision"], "block")
+        self.assertTrue(called)
+
+    def test_bg_all_complete_classifies_the_synthesis(self):
+        # Once every launch has a delivered notification, the synthesis turn
+        # is the real deliverable and must reach the classifier. This also
+        # pins that notification turns (plain user records) do NOT advance the
+        # cycle boundary — if they did, the launches would leave the slice.
+        records = self.BG_LAUNCH + [
+            task_notification("toolu_google"),
+            task_notification("toolu_apple", status="failed"),
+            a_tool("Write", {"file_path": "/x/report.md", "content": "# Store APIs\n" * 80}),
+            a_text("Full research report synthesized and written. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="TURBO")
+        self.assertEqual(decision["decision"], "block")
+        self.assertTrue(called)
+
+    def test_quoted_launch_ack_is_not_a_launch(self):
+        # grep/Read output that merely QUOTES an ack mid-content must not
+        # read as in-flight work and suppress the review.
+        records = [
+            user("fix the hook"),
+            tool_result('24 user :: TOOL_RESULT:Async agent launched successfully.\n'
+                        '{"content": "Async agent launched successfully."}'),
+            a_tool("Edit", {"file_path": "/x/hook.py", "old_string": "a", "new_string": "b"}),
+            a_text("Adjusted the in-flight guard. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="NORMAL")
+        self.assertEqual(decision["decision"], "block")
+        self.assertTrue(called)
+
+    def test_workflow_launch_defers_until_notified(self):
+        records = [
+            user("run the audit workflow"),
+            {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "toolu_wf", "name": "Workflow",
+                 "input": {"script": "..."}}]}},
+            tool_result("Workflow started. runId: wf_abc123", "toolu_wf"),
+            a_text("Audit workflow launched; results will land shortly. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="NORMAL")
+        self.assertEqual(decision["decision"], "approve")
+        self.assertFalse(called)
+        decision, called = self.run_hook(
+            records + [task_notification("toolu_wf"),
+                       a_tool("Write", {"file_path": "/x/audit.md", "content": "findings " * 100}),
+                       a_text("Audit synthesized. " + LONG_PROSE)],
+            level="NORMAL")
+        self.assertEqual(decision["decision"], "block")
 
     # --- classification plumbing ---
 

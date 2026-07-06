@@ -26,6 +26,21 @@ Design:
 - A cycle with no tool calls at all is conversation, not shipped work ->
   approve without classifying. (A long recap/summary getting classified
   NORMAL was the observed loop trigger.)
+- Background work still in flight -> approve. Launching background agents
+  (or bg Bash / Workflow) ENDS the turn, so Stop fires mid-task; blocking
+  there demands a review of work that doesn't exist yet AND burns the
+  cycle's single prompt, so the real deliverable synthesized after the
+  completion notifications ships unreviewed (has_assess is already true
+  for the cycle). Launches are matched to delivered <task-notification>
+  turns by tool_use_id; unmatched launch -> defer to a later Stop. Agent/
+  Workflow launches defer unconditionally (they reliably notify, so the
+  review is postponed, never skipped); a bg Bash launch defers only while
+  the cycle has no file edits, because dev-server-style commands never
+  exit by design and must not suppress review of shipped work beside
+  them. The notification turns themselves are plain type=user records (no isMeta,
+  CLI 2.1.199) but are machine turns: they must not advance the cycle
+  boundary, or the launches they answer leave the "recent" slice and
+  this detection goes blind mid-flight.
 - A cheap Sonnet call (low effort, no tools) classifies the level
 - Classifier unavailable -> approve (fail-open, with a stderr note): a missed
   review costs less than a broken classifier blocking every Stop
@@ -120,23 +135,30 @@ def analyze_transcript(path):
     """Parse transcript tail.
 
     Returns (ok, has_edits, any_tools, has_assess, prior_assess, prompted,
-    recent_text):
+    pending_bg, recent_text):
     - ok           whether the transcript was readable and non-empty
     - has_edits    file Edit/Write tools ran after the last real user message
     - any_tools    ANY tool ran after the last real user message
     - has_assess   /assess ran after the last real user message
     - prior_assess /assess ran BEFORE it (earlier in the session/window)
     - prompted     OUR "Run /assess" block reason already sits in this cycle
+    - pending_bg   background tasks launched this cycle with no completion
+                   notification yet — the turn ended as a handoff, not done
     - recent_text  assistant text + edit summaries since then, chronological
     """
-    empty = (False, False, False, False, False, False, "")
+    empty = (False, False, False, False, False, False, False, "")
     if not path:
         return empty
     try:
         with open(path, "rb") as f:
             f.seek(0, 2)
             size = f.tell()
-            f.seek(max(0, size - 500_000))
+            # 2MB, not less: launch acks sit at the START of a cycle, and a
+            # heavy multi-agent cycle can accumulate hundreds of KB of results
+            # before a mid-flight Stop. Truncating the acks away would read as
+            # "nothing in flight" and reintroduce the premature block under
+            # exactly the load the in-flight guard exists for.
+            f.seek(max(0, size - 2_000_000))
             lines = f.read().decode("utf-8", errors="replace").splitlines()
     except Exception:
         return empty
@@ -164,6 +186,12 @@ def analyze_transcript(path):
             return False
         msg = r.get("message") or {}
         content = msg.get("content") if isinstance(msg, dict) else None
+        # Background-task completion notifications are delivered as PLAIN user
+        # records (no isMeta — CLI 2.1.199), but they are machine turns: they
+        # must not start a new cycle, or the launches they answer fall out of
+        # the "recent" slice and in-flight detection below goes blind.
+        if _text_of(content).strip().lower().startswith("<task-notification>"):
+            return False
         if isinstance(content, str):
             return True
         if isinstance(content, list):
@@ -191,6 +219,87 @@ def analyze_transcript(path):
         return "run /assess" in _text_of(m.get("content") if isinstance(m, dict) else None).lower()
 
     prompted = any(is_our_prompt(r) for r in recent)
+
+    # Background work in flight this cycle. Launches are detected from ground
+    # truth: the launch-ack tool_result for Agent ("Async agent launched
+    # successfully...") / Bash ("Command running in background..."), matched
+    # by startswith so grep/Read output QUOTING an ack mid-content doesn't
+    # count — the same quoting rule as the assess marker. The ack text alone
+    # is still forgeable (a foreground `cat` of a file STARTING with an ack),
+    # so the id must also belong to a tool_use that can launch background
+    # work. (Workflow is the exception: background by contract, its tool_use
+    # block itself is the launch — notification-on-tool_use_id field-verified,
+    # 4/4 across three sessions.) Completions are DELIVERED
+    # <task-notification> turns carrying the launch's tool_use_id — a plain
+    # user record starting with the tag (CLI 2.1.199) or an attachment with
+    # commandMode=task-notification (2.1.150). queue-operation enqueues are
+    # deliberately NOT counted: an enqueued-but-undelivered notification means
+    # the model hasn't seen the result yet, and observed enqueue+remove pairs
+    # show the queue can drop entries without delivering. Any delivered status
+    # counts (completed, failed, killed): no longer in flight either way.
+    #
+    # Launches are split by how reliably they notify (field-measured):
+    # - Agent / Workflow notify essentially always -> defer unconditionally;
+    #   the completion-triggered Stop reviews the whole cycle, so deferral is
+    #   a postponement, not a skip.
+    # - bg Bash orphans ~8% of the time, and long-lived processes (dev
+    #   server, watcher, tail -f) never exit BY DESIGN -> defer only while
+    #   the cycle has no file edits, so a forever-running server can't
+    #   suppress review of real shipped work sitting next to it.
+    launch_prefixes = ("async agent launched successfully",
+                       "command running in background")
+    notif_id_re = re.compile(r"<tool-use-id>\s*([^<\s]+)\s*</tool-use-id>")
+    reliable, bash_only, notified = set(), set(), set()
+    use_info = {}  # tool_use_id -> (tool name, run_in_background input)
+    for r in recent:
+        rtype = r.get("type")
+        msg_ = r.get("message") or {}
+        content = msg_.get("content") if isinstance(msg_, dict) else None
+        if rtype == "user":
+            text = _text_of(content)
+            if text.strip().lower().startswith("<task-notification>"):
+                notified.update(notif_id_re.findall(text))
+            if isinstance(content, list):
+                for b in content:
+                    if not (isinstance(b, dict) and b.get("type") == "tool_result"):
+                        continue
+                    # An errored call never started background work (matters
+                    # for Workflow, whose tool_use alone marks a launch): a
+                    # bad script would otherwise read as in-flight forever.
+                    if b.get("is_error"):
+                        notified.add(b.get("tool_use_id"))
+                        continue
+                    cc = b.get("content")
+                    if isinstance(cc, str):
+                        texts = [cc]
+                    elif isinstance(cc, list):
+                        texts = [t.get("text", "") for t in cc if isinstance(t, dict)]
+                    else:
+                        texts = []
+                    if not any(t.strip().lower().startswith(launch_prefixes) for t in texts):
+                        continue
+                    name, bg = use_info.get(b.get("tool_use_id"), (None, None))
+                    if name == "Agent":
+                        reliable.add(b.get("tool_use_id"))
+                    elif name == "Bash" and bg:
+                        bash_only.add(b.get("tool_use_id"))
+                    elif name is None:
+                        # The tool_use fell outside the tail window; the ack
+                        # is the only evidence left -> count it. (A forged ack
+                        # always has its tool_use in-window, right before it.)
+                        reliable.add(b.get("tool_use_id"))
+        elif rtype == "assistant" and isinstance(content, list):
+            for b in content:
+                if not (isinstance(b, dict) and b.get("type") == "tool_use"):
+                    continue
+                inp = b.get("input") or {}
+                use_info[b.get("id")] = (b.get("name"), bool(inp.get("run_in_background")))
+                if b.get("name") == "Workflow":
+                    reliable.add(b.get("id"))
+        elif rtype == "attachment":
+            att = r.get("attachment") or {}
+            if isinstance(att, dict) and att.get("commandMode") == "task-notification":
+                notified.update(notif_id_re.findall(att.get("prompt") or ""))
 
     edit_tools = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
     has_edits = False
@@ -241,8 +350,13 @@ def analyze_transcript(path):
                     if any(tok in cmd for tok in ("rm ", "mv ", "cp ", ">", ">>", "mkdir", "touch")):
                         parts.append(f"[Bash] {snippet(cmd, 300)}")
 
+    # Decided here because the bg-Bash arm is gated on has_edits (above).
+    pending_bg = bool(reliable - notified) or \
+        (bool(bash_only - notified) and not has_edits)
+
     recent_text = "\n\n".join(parts).strip()
-    return True, has_edits, any_tools, has_assess, prior_assess, prompted, recent_text
+    return (True, has_edits, any_tools, has_assess, prior_assess, prompted,
+            pending_bg, recent_text)
 
 
 def classify_with_llm(msg, tool_context):
@@ -343,7 +457,7 @@ if transcript_path:
         pass
 
 # 1. Analyze transcript since last user message
-ok, has_tools, any_tools, has_assess, prior_assess, prompted, recent_text = \
+ok, has_tools, any_tools, has_assess, prior_assess, prompted, pending_bg, recent_text = \
     analyze_transcript(transcript_path)
 
 # Prefer the full recent assistant message queue over just the last message
@@ -361,6 +475,20 @@ if has_assess:
 # not new work to re-review — the old guard's edit condition is exactly what
 # let inline-review-plus-fix loop forever. Redundant while 0b works; harmless.
 if prompted:
+    approve()
+
+# 2c. Background tasks launched this cycle are still running -> approve. The
+# turn ended because the agent HANDED OFF to background work, not because the
+# work is done; the completion notification re-invokes the agent, and that
+# later Stop sees launches and notifications paired up and classifies the real
+# deliverable. Blocking here reviews nothing AND spends has_assess for the
+# whole cycle, so the eventual deliverable would ship unreviewed (observed:
+# /assess demanded mid-research with three agents still in flight). Residual
+# risk: an Agent that dies without ever notifying suppresses review of
+# EVERYTHING in the cycle — including unrelated edits — until the next user
+# message; accepted because agents notified 100% of the time in field data
+# and the bg-Bash arm (where orphans are real) is already edit-gated.
+if pending_bg:
     approve()
 
 # 3. No tool calls at all this cycle -> conversation, not shipped work. There is
