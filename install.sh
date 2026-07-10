@@ -35,4 +35,4 @@ echo
 echo "Done."
 echo "If not already registered, add the Stop hook once to ~/.claude/settings.json:"
 echo '  {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/stop_assess.py"}]}]}}'
-echo "Codex uses model/effort from ~/.codex/config.toml (currently gpt-5.5 / xhigh)."
+echo "Codex model/effort are pinned in panel.sh (gpt-5.6-sol / xhigh; needs codex-cli >= 0.144)."

@@ -41,7 +41,7 @@ A cheap classifier (Claude Sonnet, low effort) decides the level on every Stop. 
 
 `panel.sh` runs two independent skeptical reviewers **in parallel** (wall-clock ≈ the slower one, not the sum) over the same artifact:
 
-- **Codex** — `gpt-5.5` at `xhigh` effort; a different model lineage.
+- **Codex** — `gpt-5.6-sol` at `xhigh` effort; a different model lineage.
 - **Fresh Claude** — a clean `claude -p` context, read-only tools (`Read`/`Grep`/`Glob`), no MCP.
 
 Both are told to **find problems, not to praise**, and to judge independently. Neither sees the other's output or any prior review, so their errors stay decorrelated. The reviewer prompt is fixed inside the script (it's a guard — not something the orchestrator rewrites per call), and the *task* handed to them is the original request verbatim, never the agent's summary of what it did (a paraphrase would re-anchor them).
@@ -57,7 +57,7 @@ Not by majority vote — two of the three voices are the same model lineage and 
 ## Requirements
 
 - **Claude Code** (`claude` CLI), authenticated.
-- **Codex** (`codex` CLI), authenticated. Model and effort are pinned to `gpt-5.5` / `xhigh` (override with `ASSESS_CODEX_MODEL` / `ASSESS_CODEX_EFFORT`).
+- **Codex** (`codex` CLI ≥ 0.144), authenticated. Model and effort are pinned to `gpt-5.6-sol` / `xhigh` (override with `ASSESS_CODEX_MODEL` / `ASSESS_CODEX_EFFORT`).
 - macOS or Linux (the hook and `panel.sh` are bash + standard tools).
 
 ## Files
