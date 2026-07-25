@@ -161,6 +161,43 @@ class HookTest(unittest.TestCase):
         self.assertEqual(decision["decision"], "approve")
         self.assertFalse(called)
 
+    def test_scope_skill_run_does_not_satisfy_the_review_gate(self):
+        # The before-work `scope` skill reviews nothing, so running it must NOT count
+        # as "/assess already ran" — otherwise work done afterwards reaches Stop with
+        # the flag spent and ships with no review and no notice.
+        #
+        # Detection keys on literal strings, so the guarantee rests on TWO of them
+        # staying out of scope/SKILL.md — the only file of this skill ever injected as
+        # an isMeta turn. Both are natural things to write in a file about /assess:
+        #   "skills/assess" -> is_assess_launch's skill-body branch (documenting the
+        #                      shared panel.sh by its real path)
+        #   "run /assess"   -> is_our_prompt, which reads any isMeta turn (phrasing the
+        #                      hand-off as "the hook will tell you to run /assess turbo")
+        # Either one silently re-arms the bug, so assert them by name for a diagnosable
+        # failure, then run the real body through the hook to catch anything else.
+        root = Path(__file__).resolve().parent.parent
+        panel = root / "skills" / "scope" / "panel.sh"
+        self.assertTrue(panel.resolve().is_file(),
+                        f"{panel} must resolve — SKILL.md mandates this path and forbids "
+                        f"the sibling's, so a dangling link leaves no documented way to run")
+        skill_path = root / "skills" / "scope" / "SKILL.md"
+        skill = skill_path.read_text()
+        self.assertNotIn("skills/assess", skill.lower())
+        self.assertNotIn("run /assess", skill.lower())
+        records = [
+            user("research whether we can add a third reviewer"),
+            a_tool("Skill", {"skill": "scope", "args": ""}),
+            tool_result("Launching skill: scope"),
+            meta("Base directory for this skill: /Users/x/.claude/skills/scope\n" + skill),
+            a_text("Readings converged; assumptions agreed. Building it."),
+            a_tool("Write", {"file_path": "/x/third.py", "content": "x = 1\n" * 60}),
+            a_text("Added the third reviewer. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="TURBO")
+        self.assertEqual(decision["decision"], "block")
+        self.assertIn("turbo", decision["reason"].lower())
+        self.assertTrue(called)
+
     def test_prompted_cycle_backstop_without_stop_hook_active(self):
         # If the CLI ever stops sending stop_hook_active, the injected prompt
         # itself must end the loop — even when the agent answered with an

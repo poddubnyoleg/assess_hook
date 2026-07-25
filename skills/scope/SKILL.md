@@ -50,10 +50,14 @@ only if the task genuinely changes shape.
    <the user's request, pasted exactly as written; multiple turns in order if it spans several>
    VERBATIM
    )"
-   bash ~/.claude/skills/assess/panel.sh --mode scope "$ART" "$REQ"
+   bash ~/.claude/skills/scope/panel.sh --mode scope "$ART" "$REQ"
    ```
    `--mode scope` must come **before** the artifact path; after it, the flag is task text.
-   (`panel.sh` is shared with the `assess` skill and lives there — that path is correct.)
+
+   **Use exactly that path — do not rewrite it to point at the sibling review skill's
+   directory.** It is a symlink to one shared script, and the indirection exists to keep
+   certain strings out of this file, which the Stop hook scans. See "Why a separate skill"
+   in the README before editing this line; a test enforces it.
    Codex answers a six-slot interpretation schema; a fresh Claude answers assumptions and
    then runs a pre-mortem. Each is read-only.
 

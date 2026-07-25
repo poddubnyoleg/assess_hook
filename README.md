@@ -115,7 +115,25 @@ before-work panel, do substantial work in the same turn, and reach Stop with the
 already satisfied, shipping it reviewed by nobody. The before-work panel would silently
 cancel the after-work one. A skill named `scope` matches none of those four paths, so the
 two are independent again — run scope, work, and the Stop hook still asks for turbo at the
-end, which is the correct flow. Any future rename must keep "assess" out of the skill name.
+end, which is the correct flow.
+
+The catch is that these are substring scans over a whole injected turn, not checks anchored
+to the line that names the skill — and there is a fifth channel with the same consequence:
+`is_our_prompt()` matches a bare `"run /assess"` in *any* isMeta turn, which an injected
+skill body is. So the guarantee rests on two ordinary strings never appearing anywhere in
+`scope/SKILL.md`: the review skill's directory path (the obvious way to document a shared
+`panel.sh`) and the phrase "run /assess" (the obvious way to describe the hand-off). Either
+one silently spends the review flag, and nothing reports a missing review.
+
+Hence `skills/scope/panel.sh` — a symlink giving the same script a second entry point, so
+the instructions can cite their own directory — and a test that runs the real `SKILL.md`
+through the hook and asserts both strings by name. A future rename must likewise keep
+"assess" out of the skill name.
+
+That is a constraint humans have to remember rather than one the code enforces, which is why
+the sturdier fix is to anchor these checks to what they are actually about: the
+base-directory line for the skill-body branch, and the hook's own injected reason for
+`is_our_prompt`. That would retire the string taboo and the symlink with it.
 
 ## Requirements
 
@@ -127,8 +145,9 @@ end, which is the correct flow. Any future rename must keep "assess" out of the 
 
 - `hooks/stop_assess.py` — the 3-level gate (the Sonnet classifier).
 - `skills/assess/SKILL.md` — the after-work instructions: normal + turbo branches.
-- `skills/scope/SKILL.md` — the before-work instructions. Separate skill; shares `panel.sh`.
+- `skills/scope/SKILL.md` — the before-work instructions. Separate skill (see above for why).
 - `skills/assess/panel.sh` — runs the two reviewers in parallel. `--mode review` (default) on a finished artifact; `--mode scope` on a request that hasn't been started.
+- `skills/scope/panel.sh` — a symlink to the script above, not a second copy. It exists so the scope instructions can cite a path that doesn't contain the review skill's directory name; deleting it breaks `/scope`.
 - `install.sh` — symlinks the hook + skill into `~/.claude/` (backs up anything already there).
 
 ## Install
