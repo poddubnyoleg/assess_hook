@@ -15,8 +15,9 @@ Add reviewers that **fail differently** from the working agent, so their mistake
 
 - a **different model** — OpenAI's Codex — whose different training catches model-systematic errors; and
 - a **fresh instance of the same model** with a clean context, which, never having seen the session's reasoning, catches anchoring and wrong-problem errors.
+- optionally a **third lineage** — Moonshot's Kimi via the [`pi`](https://pi.dev) agent — off unless you turn it on, because it needs a binary and a provider key this repo can't assume you have.
 
-The point is not "a smarter reviewer." It's **decorrelation**: two checkers whose errors are independent of the author's. The chance all three miss the same bug is far lower than any one alone. Notably this holds *even if the reviewers are no more capable* than the working agent — independence, not capability, is what buys the catch.
+The point is not "a smarter reviewer." It's **decorrelation**: checkers whose errors are independent of the author's. The chance all of them miss the same bug is far lower than any one alone. Notably this holds *even if the reviewers are no more capable* than the working agent — independence, not capability, is what buys the catch.
 
 Independent review costs tokens and time, so it's **gated**: a cheap classifier decides per turn whether the work is substantial enough to be worth it.
 
@@ -40,20 +41,23 @@ A cheap classifier (Claude Sonnet, low effort) decides the level on every Stop. 
 
 ## The turbo panel
 
-`panel.sh` runs two independent skeptical reviewers **in parallel** (wall-clock ≈ the slower one, not the sum) over the same artifact:
+`panel.sh` runs independent skeptical reviewers **in parallel** (wall-clock ≈ the slowest one, not the sum) over the same artifact:
 
 - **Codex** — `gpt-5.6-sol` at `xhigh` effort; a different model lineage.
 - **Fresh Claude** — a clean `claude -p` context, read-only tools (`Read`/`Grep`/`Glob`), no MCP.
+- **Pi** *(optional, `ASSESS_PANEL_PI=1`)* — `moonshotai/kimi-k3` at `high` via OpenRouter; a third lineage. See [the third reviewer](#the-third-reviewer-optional).
 
-Both are told to **find problems, not to praise**, and to judge independently. Neither sees the other's output or any prior review, so their errors stay decorrelated. The reviewer prompt is fixed inside the script (it's a guard — not something the orchestrator rewrites per call), and the *task* handed to them is the original request verbatim, never the agent's summary of what it did (a paraphrase would re-anchor them).
+All are told to **find problems, not to praise**, and to judge independently. None sees the others' output or any prior review, so their errors stay decorrelated. The reviewer prompt is fixed inside the script (it's a guard — not something the orchestrator rewrites per call), and the *task* handed to them is the original request verbatim, never the agent's summary of what it did (a paraphrase would re-anchor them).
 
 ## How findings are combined (turbo)
 
-Not by majority vote — two of the three voices are the same model lineage and correlate. Reconcile **by axis** instead:
+Not by majority vote — the working agent and the fresh Claude are the same model lineage and correlate. Reconcile **by axis** instead:
 
 - a **verifiable** finding (a real bug, a failing case, a spec mismatch) → check it yourself, fix if real;
-- a finding **one reviewer raised and the other missed** → investigate it; cross-lineage disagreement is signal, not a minority to overrule;
-- **both agree it's fine** → high confidence, move on.
+- a finding **one reviewer raised and the others missed** → investigate it; cross-lineage disagreement is signal, not a minority to overrule;
+- **all agree it's fine** → high confidence, move on.
+
+With the third reviewer on, a 2-1 split is especially not a vote: the working agent and the fresh Claude agreeing against Codex or Pi is *one* lineage, not two.
 
 ## Scope: the same trick, before the work
 
@@ -70,10 +74,15 @@ reviewers are asked what they think is being **asked**, never how to do it:
   out of scope, done condition, most likely failure.
 - **Fresh Claude** answers **assumptions** first, then runs a **pre-mortem** — wrong
   question, already done, tractability, hidden cost, misreading risk.
+- **Pi** *(when enabled)* answers **assumptions** first, then enumerates the **competing
+  readings** — every reading that would lead to different work, the single question that
+  would discriminate between them, how far apart they are, and what evidence favours one.
 
 Different lenses on purpose. After the work, a fresh Claude earns its slot by being
 un-anchored from a session that has convinced itself; at t=0 there is no such anchor, so an
-identical prompt would make it a second copy of the working agent's own reading.
+identical prompt would make it a second copy of the working agent's own reading. The same
+argument applies to a third reviewer: asked the same question, it would cost a third call
+for no additional voice.
 
 **Assumptions is the load-bearing slot, and the only one both reviewers answer.** When the
 request is clear, everything else agrees; assumptions is where two independent readers reveal
@@ -135,18 +144,88 @@ What remains load-bearing is only the skill *name*: the other detectors key on i
 correct rather than fragile, so a future rename must keep "assess" out of it. `skills/scope/panel.sh`
 stays as a symlink — no longer required, just one entry point per skill.
 
+## The third reviewer (optional)
+
+Codex and a fresh Claude are two lineages. A third — [`pi`](https://pi.dev) driving
+`moonshotai/kimi-k3` over OpenRouter — adds another, in both modes. It is **off by default
+and opt-in**, because unlike the other two it needs a binary, a provider key, and (for a
+custom model) a machine-local model definition that this repo cannot assume you have:
+
+```bash
+ASSESS_PANEL_PI=1 bash skills/assess/panel.sh "$ART" "$TASK"
+```
+
+| Variable | Default | |
+|---|---|---|
+| `ASSESS_PANEL_PI` | *(off)* | `1` turns the third reviewer on. |
+| `ASSESS_PI_MODEL` | `moonshotai/kimi-k3` | Must be a model `pi --list-models` reports on this machine. |
+| `ASSESS_PI_PROVIDER` | `openrouter` | |
+| `ASSESS_PI_EFFORT` | `high` | `xhigh` asks for the model's top tier. pi clamps to what the model actually supports (see below). |
+| `ASSESS_PI_KEY_FILE` | — | A `.env`-style file to read the key from, for when it lives in a project rather than your shell. **Only the pi reviewer sees it**; codex and claude never do. |
+| `ASSESS_PI_KEY_VAR` | derived from provider | e.g. `openrouter` → `OPENROUTER_API_KEY`. |
+
+**It degrades loudly, never silently.** A panel's whole value is decorrelation, so a
+reviewer that quietly doesn't run is worse than one that errors — you'd read two sections
+and believe three lineages agreed. Before spending a slot, `panel.sh` checks that `pi` is on
+PATH, that a credential is resolvable (environment → key file → a provider entry in pi's own
+`auth.json`), and that the model actually resolves; each failure prints an explicit
+`>>> SKIPPED` naming the cause, and the panel continues with the other two. The model check
+matters more than it sounds: pi does *not* fail fast on an unknown id — it warns and then
+dies at the provider with a `401`, which reads like an auth problem.
+
+**Read-only and hermetic, like the others.** `--tools read,grep,find,ls` is an allowlist over
+pi's built-in read-only set (its others are `bash`/`edit`/`write`), and every source of
+ambient state is switched off: no session, no extensions or installed packages, no skills, no
+prompt templates, and **no `AGENTS.md`/`CLAUDE.md` discovery** — a reviewer that inherits your
+own global instructions is not an independent voice. It runs against a throwaway copy of
+`~/.pi/agent` rather than the real one, which also keeps it working under Claude Code's Bash
+sandbox (pi writes a settings lock and a session dir at startup, which would otherwise EPERM
+and kill it before the first token).
+
+**Asking for the top tier needs a one-line config change to be real.** The default effort is
+`high`. If you raise it with `ASSESS_PI_EFFORT=xhigh`, note that Kimi K3's reasoning tiers are
+`low`/`high`/`max` and pi only offers `xhigh` for a model whose `thinkingLevelMap` defines it.
+Without one, `--thinking xhigh` silently clamps *back down* to `high`, so you pay the latency
+of asking and get the default anyway. Where the map goes depends on the model:
+
+```jsonc
+// ~/.pi/agent/models.json
+{"providers": {"openrouter": {
+  // a CUSTOM model (not in pi's bundled catalog, e.g. kimi-k3): on its models[] entry
+  "models": [{"id": "moonshotai/kimi-k3", "reasoning": true, /* … */
+              "thinkingLevelMap": {"off": null, "minimal": null, "low": "low",
+                                   "medium": null, "high": "high", "xhigh": "max"}}],
+  // a BUILT-IN model: under modelOverrides, so the catalog's context window,
+  // max-output and pricing are kept rather than reset to defaults
+  "modelOverrides": {"moonshotai/kimi-k2.6": {"thinkingLevelMap": {"xhigh": "max"}}}
+}}}
+```
+
+Then `xhigh` reaches OpenRouter as `reasoning: {effort: "max"}`. The panel reads both forms:
+when it can prove the level clamps it says so, and when the model is configured in neither
+place it says the effort could **not** be verified rather than let the header imply otherwise.
+
+**Budget for it being the slowest reviewer.** Kimi K3 lists at $3/$15 per MTok. At `max`
+effort on a ~1,100-line diff it overran the default 540s watchdog in our runs while Codex and
+Claude finished comfortably — which is why the default here is `high` rather than the top
+tier. For a large artifact, still prefer running the panel **backgrounded** with
+`ASSESS_PANEL_TIMEOUT=1500` (the 540s default exists to stay under the caller's 10-minute
+foreground Bash cap, which backgrounding removes).
+
 ## Requirements
 
 - **Claude Code** (`claude` CLI), authenticated.
 - **Codex** (`codex` CLI ≥ 0.144), authenticated. Model and effort are pinned to `gpt-5.6-sol` / `xhigh` (override with `ASSESS_CODEX_MODEL` / `ASSESS_CODEX_EFFORT`).
 - macOS or Linux (the hook and `panel.sh` are bash + standard tools).
+- *Optional, only for the third reviewer:* **pi** (`npm i -g @mariozechner/pi-coding-agent`), a provider key, and `ripgrep` on PATH (without it the reviewer keeps `read`/`ls` but loses `grep`/`find`, and says so).
 
 ## Files
 
 - `hooks/stop_assess.py` — the 3-level gate (the Sonnet classifier).
 - `skills/assess/SKILL.md` — the after-work instructions: normal + turbo branches.
 - `skills/scope/SKILL.md` — the before-work instructions. Separate skill (see above for why).
-- `skills/assess/panel.sh` — runs the two reviewers in parallel. `--mode review` (default) on a finished artifact; `--mode scope` on a request that hasn't been started.
+- `skills/assess/panel.sh` — runs the reviewers in parallel. `--mode review` (default) on a finished artifact; `--mode scope` on a request that hasn't been started.
+- `test/test_panel_pi.py` — pins the third reviewer's gating: off by default, loud when enabled-but-unavailable, and never rendered as agreement when it dies.
 - `skills/scope/panel.sh` — a symlink to the script above, not a second copy, so each skill cites its own directory. Deleting it breaks `/scope`.
 - `install.sh` — symlinks the hook + skill into `~/.claude/` (backs up anything already there).
 
@@ -172,7 +251,7 @@ It backs up any existing `~/.claude/hooks/stop_assess.py` and `~/.claude/skills/
 
 ## Notes
 
-- Both reviewers run **read-only** — they cannot edit your files.
+- All reviewers run **read-only** — they cannot edit your files.
 - `panel.sh` defaults to `--mode review`, so existing callers are unaffected; `--mode scope` (or `ASSESS_PANEL_MODE=scope`) selects the before-work panel. In scope mode the file argument is the *context* bundle rather than an artifact, and may be empty; the request itself is the second argument and is required.
 - Scope is triggered by the agent's own judgement from the skill description, not by a hook — nothing to register beyond the Stop hook below.
 - Per-reviewer timeout defaults to 540s (`ASSESS_PANEL_TIMEOUT` to override).

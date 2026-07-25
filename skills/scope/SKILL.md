@@ -59,28 +59,36 @@ only if the task genuinely changes shape.
    Codex answers a six-slot interpretation schema; a fresh Claude answers assumptions and
    then runs a pre-mortem. Each is read-only.
 
+   - An optional **third lineage** (pi driving Kimi K3) is available by prefixing
+     `ASSESS_PANEL_PI=1`. Its lens is the **competing readings**: every reading that would
+     lead to different work, and the single question that would discriminate between them —
+     which is already the shape of what step 4 has to put to the user. Off by default
+     because it needs a binary and a provider key that may not exist here; when it can't
+     run it prints `>>> SKIPPED` with the reason and the panel continues with two.
+
    - The request you pass MUST be **the user's own words, verbatim**. A paraphrase is your
      interpretation, which is exactly what this panel exists to test against — passing it
      guarantees agreement and makes the whole run worthless.
-   - **Long Bash timeout**: set the Bash tool `timeout` to `600000` ms. Both reviewers run at
-     xhigh effort. A reviewer that prints `>>> TIMED OUT` / `>>> FAILED` produced nothing —
-     that is an **incomplete panel**, never "no ambiguity found."
+   - **Long Bash timeout**: set the Bash tool `timeout` to `600000` ms. Codex and Claude run
+     at xhigh effort. A reviewer that prints `>>> TIMED OUT` / `>>> FAILED` / `>>> SKIPPED`
+     produced nothing — that is an **incomplete panel**, never "no ambiguity found."
    - Run it **from the project directory** (or set `ASSESS_PANEL_ROOT`).
    - Do NOT rewrite the reviewer instructions; the lenses are fixed inside `panel.sh` on
      purpose. You supply the request and the context, never the question they are asked.
 3. Reconcile by **UNION** — the opposite of turbo. There is no artifact to check a finding
    against and no evidence to kill one with, so nothing gets filtered for lacking proof:
-   - **ASSUMPTIONS is the only slot both reviewers answer**, so it is the only cross-lineage
-     comparison available. Diff those two lists first.
-   - **Assumptions that diverge are the deliverable.** Two independent readers filled the
-     same blank differently, so the request is ambiguous there. Put it to the user as an
+   - **ASSUMPTIONS is the only slot every reviewer answers**, so it is the only
+     cross-lineage comparison available. Diff those lists first.
+   - **Assumptions that diverge are the deliverable.** Independent readers filled the same
+     blank differently, so the request is ambiguous there. Put it to the user as an
      explicit choice. Do NOT pick one silently and do NOT average them into a compromise
      reading — resolving it yourself throws away the only thing the panel produced.
    - **Every other slot is single-source by design** (Codex: deliverable, underlying
      question, done condition; Claude: wrong question, already done, tractability, hidden
-     cost, misreading risk). Single-source is not weak here, and "the other reviewer didn't
-     raise it" is not evidence against it — they were never asked. Check each against your
-     own reading, which is the third voice.
+     cost, misreading risk; Pi, when on: competing readings, discriminating question,
+     distance, evidence, unstated constraint). Single-source is not weak here, and "the
+     other reviewers didn't raise it" is not evidence against it — they were never asked.
+     Check each against your own reading, which is the last voice.
    - **WRONG QUESTION / TRACTABILITY / ALREADY DONE** hits outrank everything: they can make
      the task unnecessary or impossible, and they expire the moment you start.
 4. Report the substance — never paste the raw panel — then:

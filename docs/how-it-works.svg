@@ -1,82 +1,143 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 762" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1000" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#6b7785"/>
     </marker>
   </defs>
 
-  <rect x="0" y="0" width="940" height="762" fill="#f6f8fb"/>
+  <rect x="0" y="0" width="1200" height="1000" fill="#f6f8fb"/>
 
-  <text x="470" y="42" text-anchor="middle" font-size="24" font-weight="700" fill="#1f2328">assess-panel — how it works</text>
-  <text x="470" y="66" text-anchor="middle" font-size="13" fill="#57606a">a 3-level Stop-hook gate that adds a cross-model review on substantial work</text>
+  <text x="600" y="42" text-anchor="middle" font-size="24" font-weight="700" fill="#1f2328">assess-panel — how it works</text>
+  <text x="600" y="66" text-anchor="middle" font-size="13" fill="#57606a">two independent cross-model panels, one at each end of a task — and one script that runs both</text>
 
-  <!-- session -->
-  <rect x="320" y="88" width="300" height="50" rx="10" fill="#ddeeff" stroke="#4a90d9" stroke-width="1.5"/>
-  <text x="470" y="109" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Claude Code session</text>
-  <text x="470" y="127" text-anchor="middle" font-size="12" fill="#57606a">you do the work</text>
+  <!-- the lanes are independent above the shared script; the divider says so -->
+  <line x1="600" y1="88" x2="600" y2="440" stroke="#c7d0da" stroke-width="1.5" stroke-dasharray="5 6"/>
 
-  <line x1="470" y1="138" x2="470" y2="174" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="482" y="161" font-size="11" fill="#57606a">Stop (turn ends)</text>
+  <!-- lane headers -->
+  <rect x="40" y="92" width="520" height="46" rx="8" fill="#e7edf4" stroke="#9db4d6" stroke-width="1.5"/>
+  <text x="300" y="112" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2328">BEFORE THE WORK — /scope, on the request itself</text>
+  <text x="300" y="130" text-anchor="middle" font-size="11" fill="#57606a">the agent's own judgement · no hook can trigger it</text>
 
-  <!-- classifier -->
-  <rect x="290" y="176" width="360" height="66" rx="10" fill="#efe6ff" stroke="#8a63d2" stroke-width="1.5"/>
-  <text x="470" y="203" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Stop hook · stop_assess.py</text>
-  <text x="470" y="224" text-anchor="middle" font-size="12" fill="#57606a">cheap Sonnet classifier picks the level</text>
+  <rect x="640" y="92" width="520" height="46" rx="8" fill="#e7edf4" stroke="#9db4d6" stroke-width="1.5"/>
+  <text x="900" y="112" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2328">AFTER THE WORK — /assess, on the finished artifact</text>
+  <text x="900" y="130" text-anchor="middle" font-size="11" fill="#57606a">the Stop hook fires automatically when the turn ends</text>
 
-  <!-- fan-out -->
-  <line x1="470" y1="242" x2="160" y2="294" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
-  <line x1="470" y1="242" x2="470" y2="294" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
-  <line x1="470" y1="242" x2="780" y2="294" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- ============ LEFT LANE: before the work ============ -->
+  <rect x="170" y="158" width="260" height="50" rx="10" fill="#ddeeff" stroke="#4a90d9" stroke-width="1.5"/>
+  <text x="300" y="180" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">The request arrives</text>
+  <text x="300" y="198" text-anchor="middle" font-size="12" fill="#57606a">nothing is built yet</text>
 
-  <!-- none -->
-  <rect x="60" y="296" width="200" height="58" rx="10" fill="#eaeef2" stroke="#aeb8c2" stroke-width="1.5"/>
-  <text x="160" y="320" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">none</text>
-  <text x="160" y="339" text-anchor="middle" font-size="12" fill="#57606a">trivial turn → skip</text>
-  <text x="160" y="375" text-anchor="middle" font-size="11" fill="#8a929c">done</text>
+  <line x1="300" y1="208" x2="300" y2="244" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <!-- normal -->
-  <rect x="370" y="296" width="200" height="58" rx="10" fill="#d7f5dd" stroke="#3fb950" stroke-width="1.5"/>
-  <text x="470" y="320" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">normal</text>
-  <text x="470" y="339" text-anchor="middle" font-size="12" fill="#57606a">in-session self-review</text>
+  <rect x="150" y="246" width="300" height="70" rx="10" fill="#ffeccc" stroke="#f0883e" stroke-width="1.5"/>
+  <text x="300" y="270" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">/scope skill</text>
+  <text x="300" y="290" text-anchor="middle" font-size="11" fill="#57606a">the agent decides to run it — nothing gates this</text>
+  <text x="300" y="308" text-anchor="middle" font-size="11" fill="#57606a">a misread request at t=0 wastes the whole task</text>
 
-  <!-- turbo -->
-  <rect x="680" y="296" width="200" height="58" rx="10" fill="#ffeccc" stroke="#f0883e" stroke-width="1.5"/>
-  <text x="780" y="320" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">turbo</text>
-  <text x="780" y="339" text-anchor="middle" font-size="12" fill="#57606a">substantial artifact</text>
+  <line x1="300" y1="316" x2="300" y2="456" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="312" y="395" font-size="11" font-weight="700" fill="#57606a">--mode scope</text>
 
-  <line x1="780" y1="354" x2="652" y2="402" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- ============ RIGHT LANE: after the work ============ -->
+  <rect x="740" y="158" width="320" height="50" rx="10" fill="#ddeeff" stroke="#4a90d9" stroke-width="1.5"/>
+  <text x="900" y="180" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Claude Code session</text>
+  <text x="900" y="198" text-anchor="middle" font-size="12" fill="#57606a">you do the work</text>
 
-  <!-- panel container -->
-  <rect x="170" y="404" width="600" height="168" rx="14" fill="#eef4ff" stroke="#9db4d6" stroke-width="1.5" stroke-dasharray="6 5"/>
-  <text x="190" y="430" font-size="13" font-weight="700" fill="#3b4350">turbo · cross-model panel — runs in parallel ‖</text>
+  <line x1="900" y1="208" x2="900" y2="244" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="912" y="230" font-size="11" fill="#57606a">Stop (turn ends)</text>
 
-  <!-- codex -->
-  <rect x="200" y="444" width="260" height="86" rx="10" fill="#cdeeea" stroke="#1f9e8f" stroke-width="1.5"/>
-  <text x="330" y="474" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Codex</text>
-  <text x="330" y="496" text-anchor="middle" font-size="12" fill="#3b4350">gpt-5.5 · xhigh</text>
-  <text x="330" y="515" text-anchor="middle" font-size="11" fill="#57606a">different model lineage</text>
+  <rect x="720" y="246" width="360" height="66" rx="10" fill="#efe6ff" stroke="#8a63d2" stroke-width="1.5"/>
+  <text x="900" y="273" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Stop hook · stop_assess.py</text>
+  <text x="900" y="294" text-anchor="middle" font-size="12" fill="#57606a">a cheap Sonnet classifier picks the level</text>
 
-  <text x="470" y="494" text-anchor="middle" font-size="22" font-weight="700" fill="#9db4d6">‖</text>
+  <line x1="900" y1="312" x2="730" y2="338" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="900" y1="312" x2="900" y2="338" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="900" y1="312" x2="1070" y2="338" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
 
-  <!-- fresh claude -->
-  <rect x="480" y="444" width="260" height="86" rx="10" fill="#ffe0d4" stroke="#ec6547" stroke-width="1.5"/>
-  <text x="610" y="474" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Fresh Claude</text>
-  <text x="610" y="496" text-anchor="middle" font-size="12" fill="#3b4350">clean context · read-only</text>
-  <text x="610" y="515" text-anchor="middle" font-size="11" fill="#57606a">no anchoring</text>
+  <rect x="650" y="340" width="160" height="58" rx="10" fill="#eaeef2" stroke="#aeb8c2" stroke-width="1.5"/>
+  <text x="730" y="364" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">none</text>
+  <text x="730" y="383" text-anchor="middle" font-size="11" fill="#57606a">trivial turn → skip</text>
+  <text x="730" y="420" text-anchor="middle" font-size="11" fill="#8a929c">done</text>
 
-  <text x="470" y="554" text-anchor="middle" font-size="12" fill="#57606a">both prompted to refute, not praise · neither sees the other's output</text>
+  <rect x="820" y="340" width="160" height="58" rx="10" fill="#d7f5dd" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="900" y="364" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">normal</text>
+  <text x="900" y="383" text-anchor="middle" font-size="11" fill="#57606a">in-session self-review</text>
+  <text x="900" y="420" text-anchor="middle" font-size="11" fill="#8a929c">done — no panel</text>
 
-  <line x1="470" y1="572" x2="470" y2="602" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="482" y="590" font-size="11" fill="#57606a">+ in-session self-review</text>
+  <rect x="990" y="340" width="160" height="58" rx="10" fill="#ffeccc" stroke="#f0883e" stroke-width="1.5"/>
+  <text x="1070" y="364" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">turbo</text>
+  <text x="1070" y="383" text-anchor="middle" font-size="11" fill="#57606a">self-review + panel</text>
 
-  <!-- reconcile -->
-  <rect x="150" y="604" width="640" height="60" rx="10" fill="#efe6ff" stroke="#8a63d2" stroke-width="1.5"/>
-  <text x="470" y="630" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Reconcile by axis — not majority vote</text>
-  <text x="470" y="650" text-anchor="middle" font-size="12" fill="#57606a">verifiable → check yourself · cross-lineage disagreement → investigate</text>
+  <line x1="1070" y1="398" x2="880" y2="456" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="962" y="438" font-size="11" font-weight="700" fill="#57606a">review mode · the default</text>
 
-  <line x1="470" y1="664" x2="470" y2="694" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- ============ SHARED: one script, two modes ============ -->
+  <rect x="230" y="460" width="740" height="244" rx="14" fill="#eef4ff" stroke="#9db4d6" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="250" y="486" font-size="13" font-weight="700" fill="#3b4350">panel.sh — ONE script, two modes · reviewers run in parallel ‖ · 540s each</text>
 
-  <!-- findings -->
-  <rect x="190" y="696" width="560" height="50" rx="10" fill="#ddeeff" stroke="#4a90d9" stroke-width="1.5"/>
-  <text x="470" y="726" text-anchor="middle" font-size="14" font-weight="700" fill="#1f2328">Findings → fix minor directly · ASK before significant changes</text>
+  <rect x="250" y="502" width="220" height="96" rx="10" fill="#cdeeea" stroke="#1f9e8f" stroke-width="1.5"/>
+  <text x="360" y="528" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Codex</text>
+  <text x="360" y="550" text-anchor="middle" font-size="12" fill="#3b4350">gpt-5.6-sol · xhigh</text>
+  <text x="360" y="570" text-anchor="middle" font-size="11" fill="#57606a">a different model lineage</text>
+  <text x="360" y="588" text-anchor="middle" font-size="11" fill="#57606a">read-only</text>
+
+  <text x="480" y="558" text-anchor="middle" font-size="22" font-weight="700" fill="#9db4d6">‖</text>
+
+  <rect x="490" y="502" width="220" height="96" rx="10" fill="#ffe0d4" stroke="#ec6547" stroke-width="1.5"/>
+  <text x="600" y="528" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Fresh Claude</text>
+  <text x="600" y="550" text-anchor="middle" font-size="12" fill="#3b4350">opus · xhigh · clean context</text>
+  <text x="600" y="570" text-anchor="middle" font-size="11" fill="#57606a">same lineage, but un-anchored</text>
+  <text x="600" y="588" text-anchor="middle" font-size="11" fill="#57606a">read-only: Read / Grep / Glob</text>
+
+  <text x="720" y="558" text-anchor="middle" font-size="22" font-weight="700" fill="#9db4d6">‖</text>
+
+  <rect x="730" y="502" width="200" height="96" rx="10" fill="#eee9f7" stroke="#a99cd0" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="830" y="528" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Pi — optional</text>
+  <text x="830" y="550" text-anchor="middle" font-size="12" fill="#3b4350">kimi-k3 · a third lineage</text>
+  <text x="830" y="570" text-anchor="middle" font-size="11" fill="#57606a">off unless ASSESS_PANEL_PI=1</text>
+  <text x="830" y="588" text-anchor="middle" font-size="11" fill="#57606a">loud skip if unavailable</text>
+
+  <rect x="250" y="612" width="340" height="76" rx="8" fill="#f4f7fc" stroke="#9db4d6" stroke-width="1.5"/>
+  <text x="420" y="632" text-anchor="middle" font-size="13" font-weight="700" fill="#1f2328">--mode scope · before the work</text>
+  <text x="420" y="650" text-anchor="middle" font-size="11" fill="#57606a">a DIFFERENT lens each · ASSUMPTIONS shared</text>
+  <text x="420" y="666" text-anchor="middle" font-size="11" fill="#57606a">so divergence across lineages is measurable</text>
+  <text x="420" y="682" text-anchor="middle" font-size="11" fill="#57606a">none may propose an approach</text>
+
+  <rect x="610" y="612" width="340" height="76" rx="8" fill="#f4f7fc" stroke="#9db4d6" stroke-width="1.5"/>
+  <text x="780" y="632" text-anchor="middle" font-size="13" font-weight="700" fill="#1f2328">--mode review · after the work</text>
+  <text x="780" y="650" text-anchor="middle" font-size="11" fill="#57606a">all reviewers get the SAME prompt</text>
+  <text x="780" y="666" text-anchor="middle" font-size="11" fill="#57606a">refute, don't praise · judge independently</text>
+  <text x="780" y="682" text-anchor="middle" font-size="11" fill="#57606a">no one sees another's output</text>
+
+  <!-- ============ the aggregations invert ============ -->
+  <line x1="300" y1="704" x2="300" y2="738" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="890" y1="704" x2="890" y2="738" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="902" y="726" font-size="11" fill="#57606a">+ the in-session self-review</text>
+
+  <rect x="150" y="740" width="320" height="78" rx="10" fill="#efe6ff" stroke="#8a63d2" stroke-width="1.5"/>
+  <text x="310" y="764" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Reconcile by UNION</text>
+  <text x="310" y="784" text-anchor="middle" font-size="11" fill="#57606a">nothing is built, so no evidence can kill a</text>
+  <text x="310" y="800" text-anchor="middle" font-size="11" fill="#57606a">weak finding · divergent ASSUMPTIONS are</text>
+  <text x="310" y="814" text-anchor="middle" font-size="11" fill="#57606a">the output, not noise to resolve</text>
+
+  <rect x="730" y="740" width="320" height="78" rx="10" fill="#efe6ff" stroke="#8a63d2" stroke-width="1.5"/>
+  <text x="890" y="764" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Reconcile BY AXIS — not a vote</text>
+  <text x="890" y="784" text-anchor="middle" font-size="11" fill="#57606a">the agent and Fresh Claude share a lineage ·</text>
+  <text x="890" y="800" text-anchor="middle" font-size="11" fill="#57606a">verifiable → check it yourself · raised by</text>
+  <text x="890" y="814" text-anchor="middle" font-size="11" fill="#57606a">one reviewer alone → investigate it</text>
+
+  <line x1="310" y1="818" x2="310" y2="850" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="890" y1="818" x2="890" y2="850" stroke="#6b7785" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="150" y="852" width="320" height="74" rx="10" fill="#ddeeff" stroke="#4a90d9" stroke-width="1.5"/>
+  <text x="310" y="872" text-anchor="middle" font-size="12" font-weight="700" fill="#1f2328">converged → state them, do the work</text>
+  <text x="310" y="887" text-anchor="middle" font-size="11" fill="#57606a">no need to ask, same turn</text>
+  <text x="310" y="905" text-anchor="middle" font-size="12" font-weight="700" fill="#1f2328">diverged → put the choice to the user</text>
+  <text x="310" y="920" text-anchor="middle" font-size="11" fill="#57606a">and stop there — do not pick one silently</text>
+
+  <rect x="730" y="852" width="320" height="52" rx="10" fill="#ddeeff" stroke="#4a90d9" stroke-width="1.5"/>
+  <text x="890" y="876" text-anchor="middle" font-size="13" font-weight="700" fill="#1f2328">Findings → fix minor directly</text>
+  <text x="890" y="894" text-anchor="middle" font-size="12" fill="#57606a">ASK before significant changes</text>
+
+  <text x="600" y="958" text-anchor="middle" font-size="12" fill="#57606a">One script, but two independent gates: a /scope run reviews nothing, so the Stop hook still asks for turbo when the turn ends.</text>
+  <text x="600" y="976" text-anchor="middle" font-size="12" fill="#57606a">That is why they are separate skills — the hook's detector keys on the name “assess”, and scope does not carry it.</text>
 </svg>

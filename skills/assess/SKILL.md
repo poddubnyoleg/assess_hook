@@ -44,16 +44,27 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
    This runs Codex (a different model) and a fresh Claude (clean context, no anchoring),
    in parallel, each told to refute — not approve. Each is read-only.
 
+   - An optional **third lineage** (pi driving Kimi K3) is available with
+     `ASSESS_PANEL_PI=1` prefixed to the command. It is off by default because it needs a
+     binary and a provider key that may not exist on this machine; when it can't run it
+     prints `>>> SKIPPED` with the reason and the panel continues with two. Turn it on when
+     the artifact is important enough to be worth the extra lineage and the extra cost.
+     **On a large artifact, run the panel BACKGROUNDED with `ASSESS_PANEL_TIMEOUT=1500`** —
+     it is the slowest of the three, and at max effort it overran the 540s default on a
+     ~1,100-line diff, handing back a TIMED OUT third reviewer after nine minutes. It runs
+     at `high` by default for that reason; `ASSESS_PI_EFFORT=xhigh` buys the top tier at
+     that cost.
+
    - **Give the Bash call a long timeout** — set the Bash tool `timeout` to the max
-     (`600000` ms). Both reviewers run at **xhigh** effort and may Read/Grep the repo, so
+     (`600000` ms). Codex and Claude run at **xhigh** effort and may Read/Grep the repo, so
      they can take several minutes; the default 2-min Bash timeout would kill the panel
      before they finish. The panel's own per-reviewer watchdog (540s) stays under that cap
      and degrades gracefully. For an even longer budget, run the panel **backgrounded**
      (no foreground cap) with `ASSESS_PANEL_TIMEOUT=1500` or higher.
-   - **A reviewer can TIME OUT or FAIL.** If the panel prints `>>> TIMED OUT` / `>>> FAILED`
-     for a reviewer, that lineage produced nothing — the panel is **incomplete**, not
-     clean. Say so explicitly when reconciling and, if it matters, re-run per the note
-     above; never read a missing reviewer as "all clear."
+   - **A reviewer can TIME OUT, FAIL, or be SKIPPED.** If the panel prints `>>> TIMED OUT` /
+     `>>> FAILED` / `>>> SKIPPED` for a reviewer, that lineage produced nothing — the panel
+     is **incomplete**, not clean. Say so explicitly when reconciling and, if it matters,
+     re-run per the note above; never read a missing reviewer as "all clear."
    - Run it **from the project directory** (the reviewers root in the current working
      directory so they can Read/Grep the surrounding code; the artifact file may live
      anywhere, e.g. /tmp). Override the root with `ASSESS_PANEL_ROOT=<dir>` if needed.
@@ -65,22 +76,24 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
      judge independently") is fixed inside `panel.sh` on purpose — it is a guard, and
      keeping it constant is what keeps the reviewers independent of you. You only supply
      the task; you never author their lens.
-4. Reconcile by axis — **do NOT majority-vote** (two of the three voices are the same
-   lineage and correlate):
+4. Reconcile by axis — **do NOT majority-vote** (you and the fresh Claude are the same
+   lineage and correlate, so a split that looks 2-1 may be one voice against one):
    - **verifiable finding** (a real bug, a failing case, a spec mismatch) → check it
      yourself, fix if real;
-   - **raised by one reviewer, missed by the other** → investigate it; cross-lineage
+   - **raised by one reviewer, missed by the others** → investigate it; cross-lineage
      disagreement is signal, not a minority to overrule;
-   - **both agree it's fine** → high confidence, move on.
+   - **all agree it's fine** → high confidence, move on.
 5. Merge your self-review findings and the panel's findings into **one** list.
 6. **Close with the full-work summary** (see "Finish with a self-contained summary"
    below) — not just the panel delta.
 
-Why two extra reviewers, and why they are not redundant:
+Why the extra reviewers, and why they are not redundant:
 - **Codex** is a different model lineage → catches blind spots Claude shares across its
   own runs.
 - **Fresh Claude** is the same model with no priming → catches anchoring and
   "solved the wrong problem," which the working session cannot see by itself.
+- **Pi/Kimi** (optional) is a third lineage → the same argument as Codex, again, against a
+  model trained by neither of the other two.
 
 ## Double-Check
 

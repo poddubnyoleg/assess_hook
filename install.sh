@@ -40,3 +40,5 @@ echo "Done."
 echo "If not already registered, add the Stop hook once to ~/.claude/settings.json:"
 echo '  {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/stop_assess.py"}]}]}}'
 echo "Codex model/effort are pinned in panel.sh (gpt-5.6-sol / xhigh; needs codex-cli >= 0.144)."
+echo "Optional third reviewer (off by default): ASSESS_PANEL_PI=1 adds pi/Kimi K3 as a third"
+echo "lineage. Needs \`pi\` on PATH plus a provider key — see 'The third reviewer' in README.md."
