@@ -22,10 +22,11 @@ Independent review costs tokens and time, so it's **gated**: a cheap classifier 
 
 ## What it is
 
-Two pieces that plug into Claude Code:
+Three pieces that plug into Claude Code:
 
-- **An `/assess` skill** — a structured self-review (for code: correctness, edge cases, security, consistency; for research: sourcing and internal consistency; for plans: simplicity and completeness). You can run it by hand (`/assess`), or let the hook trigger it. `/assess scope` runs the before-work variant instead — see below.
+- **An `/assess` skill** — a structured self-review (for code: correctness, edge cases, security, consistency; for research: sourcing and internal consistency; for plans: simplicity and completeness). You can run it by hand (`/assess`), or let the hook trigger it.
 - **A Stop hook** — a script Claude Code runs every time the agent finishes a turn. It can block the turn and tell the agent to do something first. Here it classifies the turn into one of three review levels.
+- **A `/scope` skill** — the same panel run on the *request*, before work starts. Deliberately a separate skill rather than a mode of `/assess`; [see below](#scope-the-same-trick-before-the-work) for why the split is load-bearing.
 
 ![How assess-panel works](docs/how-it-works.svg)
 
@@ -56,7 +57,7 @@ Not by majority vote — two of the three voices are the same model lineage and 
 
 ## Scope: the same trick, before the work
 
-`/assess scope` runs the same two reviewers at the *other* end of a task — on the request,
+`/scope` runs the same two reviewers at the *other* end of a task — on the request,
 before anything is built. Decorrelation is worth more here: a misread request at t=0 wastes
 the entire task, while a bug at t=1 wastes a fix.
 
@@ -101,13 +102,20 @@ user never specified. Skip it when the request already names the files or the ex
 Unlike the other levels this is **not** hook-triggered: the Stop hook fires when a turn
 ends, by which point the moment for it has passed. The agent decides to run it, from the
 skill's own description — so nothing extra needs registering, but it is judgement rather
-than a gate.
+than a gate, and a description has to win against the strongest default there is, which is
+to start working. That is why the trigger is written the way it is: timing first, the
+obvious rationalization named and refused ("don't skip because it seems clear enough"), and
+an explicit skip list so the boundary is crisp.
 
-A scope run always **ends the turn**, whether the readings converged or not. Partly that is
-the point (a divergence is a question for you, not something to resolve alone), and partly
-it is load-bearing: the Stop hook counts any `/assess` launch as "a review already ran," so
-work done in the same turn as a scope run would reach Stop with that flag spent and ship
-with no review at all.
+**Why a separate skill and not `/assess scope`.** The Stop hook's `is_assess_launch()` keys
+on the literal string "assess" — in the Skill tool's argument, in the harness's launch
+marker, in the injected skill body's path, and in a typed slash command. It never reads the
+arguments, so a `/assess scope` run spent the cycle's review flag: the agent could run the
+before-work panel, do substantial work in the same turn, and reach Stop with the hook
+already satisfied, shipping it reviewed by nobody. The before-work panel would silently
+cancel the after-work one. A skill named `scope` matches none of those four paths, so the
+two are independent again — run scope, work, and the Stop hook still asks for turbo at the
+end, which is the correct flow. Any future rename must keep "assess" out of the skill name.
 
 ## Requirements
 
@@ -118,7 +126,8 @@ with no review at all.
 ## Files
 
 - `hooks/stop_assess.py` — the 3-level gate (the Sonnet classifier).
-- `skills/assess/SKILL.md` — the instructions: normal + turbo branches, and the scope branch.
+- `skills/assess/SKILL.md` — the after-work instructions: normal + turbo branches.
+- `skills/scope/SKILL.md` — the before-work instructions. Separate skill; shares `panel.sh`.
 - `skills/assess/panel.sh` — runs the two reviewers in parallel. `--mode review` (default) on a finished artifact; `--mode scope` on a request that hasn't been started.
 - `install.sh` — symlinks the hook + skill into `~/.claude/` (backs up anything already there).
 

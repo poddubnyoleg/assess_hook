@@ -12,7 +12,7 @@
 #   artifact, so findings are checkable against evidence. Aggregate by SURVIVAL: a
 #   finding that doesn't hold up dies.
 #
-# --mode scope (`/assess scope`, BEFORE the work)
+# --mode scope (the separate `/scope` skill, BEFORE the work)
 #   There is no artifact yet, so there is nothing to refute — asking two models "how
 #   should this be done" just yields two plausible plans and no way to choose. Instead
 #   both reviewers are asked what they think is being ASKED, and each is given a
