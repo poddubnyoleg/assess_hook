@@ -166,24 +166,17 @@ class HookTest(unittest.TestCase):
         # as "/assess already ran" — otherwise work done afterwards reaches Stop with
         # the flag spent and ships with no review and no notice.
         #
-        # Detection keys on literal strings, so the guarantee rests on TWO of them
-        # staying out of scope/SKILL.md — the only file of this skill ever injected as
-        # an isMeta turn. Both are natural things to write in a file about /assess:
-        #   "skills/assess" -> is_assess_launch's skill-body branch (documenting the
-        #                      shared panel.sh by its real path)
-        #   "run /assess"   -> is_our_prompt, which reads any isMeta turn (phrasing the
-        #                      hand-off as "the hook will tell you to run /assess turbo")
-        # Either one silently re-arms the bug, so assert them by name for a diagnosable
-        # failure, then run the real body through the hook to catch anything else.
+        # Feeds the REAL SKILL.md, not a fixture: this skill's body is injected as an
+        # isMeta turn, and both detectors that could misread it (is_assess_launch's
+        # skill-body branch, is_our_prompt) work by matching text. They are anchored
+        # now — see the two tests below — but this is the end-to-end proof for the
+        # actual file that ships, whatever it grows to say.
         root = Path(__file__).resolve().parent.parent
         panel = root / "skills" / "scope" / "panel.sh"
         self.assertTrue(panel.resolve().is_file(),
-                        f"{panel} must resolve — SKILL.md mandates this path and forbids "
-                        f"the sibling's, so a dangling link leaves no documented way to run")
-        skill_path = root / "skills" / "scope" / "SKILL.md"
-        skill = skill_path.read_text()
-        self.assertNotIn("skills/assess", skill.lower())
-        self.assertNotIn("run /assess", skill.lower())
+                        f"{panel} must resolve — SKILL.md mandates this path, so a "
+                        f"dangling link leaves no documented way to run /scope")
+        skill = (root / "skills" / "scope" / "SKILL.md").read_text()
         records = [
             user("research whether we can add a third reviewer"),
             a_tool("Skill", {"skill": "scope", "args": ""}),
@@ -196,6 +189,40 @@ class HookTest(unittest.TestCase):
         decision, called = self.run_hook(records, level="TURBO")
         self.assertEqual(decision["decision"], "block")
         self.assertIn("turbo", decision["reason"].lower())
+        self.assertTrue(called)
+
+    def _scope_run_then_work(self, body):
+        return [
+            user("research whether we can add a third reviewer"),
+            a_tool("Skill", {"skill": "scope", "args": ""}),
+            tool_result("Launching skill: scope"),
+            meta(body),
+            a_tool("Write", {"file_path": "/x/third.py", "content": "x = 1\n" * 60}),
+            a_text("Added the third reviewer. " + LONG_PROSE),
+        ]
+
+    def test_skill_body_merely_citing_the_assess_path_is_not_a_review(self):
+        # is_assess_launch used to scan the WHOLE injected body, so any skill whose
+        # instructions mentioned a path under skills/assess read as a completed review.
+        # The header line names the skill; the body doesn't. This exact shape — the
+        # scope skill documenting the panel.sh both skills share — disarmed the gate.
+        records = self._scope_run_then_work(
+            "Base directory for this skill: /Users/x/.claude/skills/scope\n"
+            "Run the shared panel: ~/.claude/skills/assess/panel.sh --mode scope\n")
+        decision, called = self.run_hook(records, level="TURBO")
+        self.assertEqual(decision["decision"], "block")
+        self.assertTrue(called)
+
+    def test_skill_body_describing_the_handoff_is_not_our_prompt(self):
+        # Same class, second channel: is_our_prompt matched a bare "run /assess" in any
+        # isMeta turn, so a skill body explaining what the hook will later ask for read
+        # as "already prompted this cycle" and approved the turn. Our own reasons say
+        # "Run /assess ... before finishing"; prose describing them does not.
+        records = self._scope_run_then_work(
+            "Base directory for this skill: /Users/x/.claude/skills/scope\n"
+            "When the work is done the Stop hook will tell you to run /assess turbo.\n")
+        decision, called = self.run_hook(records, level="TURBO")
+        self.assertEqual(decision["decision"], "block")
         self.assertTrue(called)
 
     def test_prompted_cycle_backstop_without_stop_hook_active(self):

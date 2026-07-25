@@ -117,23 +117,23 @@ cancel the after-work one. A skill named `scope` matches none of those four path
 two are independent again — run scope, work, and the Stop hook still asks for turbo at the
 end, which is the correct flow.
 
-The catch is that these are substring scans over a whole injected turn, not checks anchored
-to the line that names the skill — and there is a fifth channel with the same consequence:
-`is_our_prompt()` matches a bare `"run /assess"` in *any* isMeta turn, which an injected
-skill body is. So the guarantee rests on two ordinary strings never appearing anywhere in
-`scope/SKILL.md`: the review skill's directory path (the obvious way to document a shared
-`panel.sh`) and the phrase "run /assess" (the obvious way to describe the hand-off). Either
-one silently spends the review flag, and nothing reports a missing review.
+Getting there took two false starts, both worth recording because they were the same
+mistake. Two of those checks were substring scans over a whole injected turn rather than
+checks anchored to the thing they were about, and an injected *skill body* is such a turn.
+So a skill whose instructions merely mentioned the review skill's path counted as a
+completed review — which the scope skill did, in the obvious way, by documenting the
+`panel.sh` the two share. The first fix failed identically: the comment written to warn
+about the string contained the string. A third channel had the same shape, `is_our_prompt()`
+matching a bare `"run /assess"` in any isMeta turn, so describing the hand-off in prose read
+as "we already prompted this cycle" and approved the turn outright.
 
-Hence `skills/scope/panel.sh` — a symlink giving the same script a second entry point, so
-the instructions can cite their own directory — and a test that runs the real `SKILL.md`
-through the hook and asserts both strings by name. A future rename must likewise keep
-"assess" out of the skill name.
+Both checks are now anchored to what they actually mean — the base-directory line that names
+the skill, and the hook's own injected reason (`"Run /assess … before finishing"`) — so
+ordinary prose about assess is just prose. Tests pin both, and fail against the old logic.
 
-That is a constraint humans have to remember rather than one the code enforces, which is why
-the sturdier fix is to anchor these checks to what they are actually about: the
-base-directory line for the skill-body branch, and the hook's own injected reason for
-`is_our_prompt`. That would retire the string taboo and the symlink with it.
+What remains load-bearing is only the skill *name*: the other detectors key on it, which is
+correct rather than fragile, so a future rename must keep "assess" out of it. `skills/scope/panel.sh`
+stays as a symlink — no longer required, just one entry point per skill.
 
 ## Requirements
 
@@ -147,7 +147,7 @@ base-directory line for the skill-body branch, and the hook's own injected reaso
 - `skills/assess/SKILL.md` — the after-work instructions: normal + turbo branches.
 - `skills/scope/SKILL.md` — the before-work instructions. Separate skill (see above for why).
 - `skills/assess/panel.sh` — runs the two reviewers in parallel. `--mode review` (default) on a finished artifact; `--mode scope` on a request that hasn't been started.
-- `skills/scope/panel.sh` — a symlink to the script above, not a second copy. It exists so the scope instructions can cite a path that doesn't contain the review skill's directory name; deleting it breaks `/scope`.
+- `skills/scope/panel.sh` — a symlink to the script above, not a second copy, so each skill cites its own directory. Deleting it breaks `/scope`.
 - `install.sh` — symlinks the hook + skill into `~/.claude/` (backs up anything already there).
 
 ## Install

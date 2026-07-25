@@ -121,9 +121,14 @@ def is_assess_launch(r):
                         return True
         text = _text_of(content).lower()
         # The injected skill body (an isMeta turn) — how a user-typed /assess
-        # shows up inside the cycle.
-        if r.get("isMeta") is True and "base directory for this skill:" in text \
-                and "skills/assess" in text:
+        # shows up inside the cycle. Anchored to the header LINE that names the
+        # skill, not scanned over the whole body: the sibling `scope` skill (the
+        # before-work panel) reviews nothing, and its instructions naturally cite
+        # the panel.sh the two skills share. Under a body-wide scan, merely LOADING
+        # that skill counted as a completed review, so the work that followed
+        # reached Stop with the flag spent and shipped reviewed by nobody.
+        if r.get("isMeta") is True and re.search(
+                r"base directory for this skill:[^\n]*skills/assess", text):
             return True
         # A user-typed slash-command record.
         if "<command-name>assess" in text or "<command-name>/assess" in text:
@@ -216,7 +221,13 @@ def analyze_transcript(path):
         if r.get("type") != "user" or r.get("isMeta") is not True:
             return False
         m = r.get("message") or {}
-        return "run /assess" in _text_of(m.get("content") if isinstance(m, dict) else None).lower()
+        text = _text_of(m.get("content") if isinstance(m, dict) else None).lower()
+        # Match OUR reason, not any mention of running assess. Both block_* reasons
+        # read "Run /assess ... before finishing", so requiring both on one line keeps
+        # an injected skill body that merely DESCRIBES the hand-off from registering as
+        # "already prompted this cycle" — which would approve the turn and skip the
+        # review entirely. Same class of false positive as the skill-body branch above.
+        return re.search(r"run /assess[^\n]*before finishing", text) is not None
 
     prompted = any(is_our_prompt(r) for r in recent)
 

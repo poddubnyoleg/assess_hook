@@ -54,10 +54,8 @@ only if the task genuinely changes shape.
    ```
    `--mode scope` must come **before** the artifact path; after it, the flag is task text.
 
-   **Use exactly that path — do not rewrite it to point at the sibling review skill's
-   directory.** It is a symlink to one shared script, and the indirection exists to keep
-   certain strings out of this file, which the Stop hook scans. See "Why a separate skill"
-   in the README before editing this line; a test enforces it.
+   `panel.sh` here is a symlink to the copy in the sibling review skill — one script, two
+   entry points, so each skill can cite its own directory.
    Codex answers a six-slot interpretation schema; a fresh Claude answers assumptions and
    then runs a pre-mortem. Each is read-only.
 
