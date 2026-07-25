@@ -241,6 +241,28 @@ class HookTest(unittest.TestCase):
         self.assertEqual(decision["decision"], "approve")
         self.assertFalse(called)
 
+    def test_backstop_recognises_the_reason_the_hook_actually_emits(self):
+        # is_our_prompt matches the SHAPE of our reason ("run /assess ... before
+        # finishing") rather than any mention of assess, so rewording block_normal or
+        # block_turbo could silently break the backstop above — and the fixture there is
+        # a hand-copied string that has already drifted from the real text, so it would
+        # stay green while production looped. Feed the hook its OWN emitted reason to
+        # couple the two by test instead of by memory.
+        for level in ("NORMAL", "TURBO"):
+            with self.subTest(level=level):
+                first, _ = self.run_hook(WORK, level=level)
+                self.assertEqual(first["decision"], "block")
+                records = WORK + [
+                    meta("Stop hook feedback:\n" + first["reason"]),
+                    a_text("Reviewed inline, nothing critical. " + LONG_PROSE),
+                ]
+                second, called = self.run_hook(records, level=level)
+                self.assertEqual(
+                    second["decision"], "approve",
+                    "the emitted block reason no longer matches is_our_prompt — the "
+                    "prompted-cycle backstop is broken, which is the infinite-loop guard")
+                self.assertFalse(called)
+
     # --- background work in flight ---
 
     BG_LAUNCH = [
