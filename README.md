@@ -212,6 +212,60 @@ tier. For a large artifact, still prefer running the panel **backgrounded** with
 `ASSESS_PANEL_TIMEOUT=1500` (the 540s default exists to stay under the caller's 10-minute
 foreground Bash cap, which backgrounding removes).
 
+## Egress: don't run the panel inside a network sandbox
+
+Every reviewer is a network client, so the one environment guaranteed to break the panel is
+the one it is usually called from. Claude Code's Bash sandbox routes outbound traffic through
+a host-allowlisted CONNECT proxy; when a provider is not on the list the proxy refuses the
+tunnel and the CLI dies *slowly* — codex spends five WebSocket reconnects and a transport
+fallback before exiting 1. The log reads like a flaky provider, so the natural response is to
+re-run and pay the same minutes again. **Call `panel.sh` with the sandbox disabled** (in
+Claude Code, a Bash call with `dangerouslyDisableSandbox`), or allowlist the hosts.
+
+`panel.sh` can't fix this from the inside, so it names it. When a proxy is configured, a
+preflight probes each reviewer's endpoint (codex's is chosen by its auth mode, pi's comes from
+the provider's `baseUrl`) and a refused tunnel becomes an immediate `>>> SKIPPED` naming the
+host and status, instead of minutes of retries. Two rules keep the diagnostic from costing
+more than it saves: it discriminates on the **CONNECT** status, never the HTTP status —
+`chatgpt.com` answers a bare `curl` with `403` through a wide-open tunnel — and only a **4xx**
+counts, because that is the proxy refusing on policy and no amount of retrying changes it.
+Everything else is treated as *no evidence* and never vetoes a reviewer: `000` (no answer, or
+a SOCKS proxy, where no CONNECT exchange exists), a `5xx` proxy having a bad moment, an
+endpoint the script cannot name, or no `curl` on PATH. With no proxy configured it makes no
+network calls at all;
+`ASSESS_PANEL_NET_PROBE=0` disables it outright, `ASSESS_PANEL_NET_TIMEOUT` (default 8s) bounds
+each probe.
+
+And when the panel ends with no *foreign* lineage having produced a review — codex and pi both
+skipped, failed or empty — it says so in a banner rather than printing reconciliation advice
+about reviewers that never spoke. A run in which only the fresh Claude answered is the caller's
+own lineage checking its own work; that is a self-check, not a panel, and it has to be reported
+as one.
+
+## Keeping the provider key out of your transcripts
+
+`ASSESS_PI_KEY_FILE` / `ASSESS_PI_KEY_VAR` exist so the key can live outside `models.json`, and
+it is worth using them — or better, keeping the secret out of any file at all. pi resolves
+`apiKey` three ways: a **literal**, an **env-var name**, or a **`!command`** whose stdout is the
+key. On macOS the last one turns the config into a pointer:
+
+```jsonc
+// ~/.pi/agent/models.json
+{"providers": {"openrouter": {"apiKey": "!security find-generic-password -w -s openrouter-api-key"}}}
+```
+
+```bash
+# store it once (the value goes in over stdin, so it never reaches the process table)
+printf '%s\n%s\n' "$KEY" "$KEY" | security add-generic-password -a "$USER" -s openrouter-api-key -T /usr/bin/security -U -w
+```
+
+A literal key in `models.json` is a live credential in a file that gets printed — by you, or by
+an agent asked a perfectly reasonable question about which models are configured, at which
+point it is in a transcript forever. `panel.sh` treats a non-identifier `apiKey` as the provider
+authenticating itself and never echoes the value, but the file is still the exposure. An
+env-var name is the portable alternative; note it puts the key in every child process's
+environment, where an `env` dump will find it.
+
 ## Requirements
 
 - **Claude Code** (`claude` CLI), authenticated.

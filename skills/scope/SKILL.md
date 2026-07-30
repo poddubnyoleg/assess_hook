@@ -69,6 +69,11 @@ only if the task genuinely changes shape.
    - The request you pass MUST be **the user's own words, verbatim**. A paraphrase is your
      interpretation, which is exactly what this panel exists to test against — passing it
      guarantees agreement and makes the whole run worthless.
+   - **Run it OUTSIDE your Bash sandbox** (in Claude Code: `dangerouslyDisableSandbox`).
+     A sandbox that routes egress through a host-allowlisted proxy refuses the tunnel to
+     whichever provider is not on the list, and the reviewer dies slowly with a log that
+     reads like a flaky provider. `panel.sh` detects it and says so, but only the caller
+     can avoid it.
    - **Long Bash timeout**: set the Bash tool `timeout` to `600000` ms. Codex and Claude run
      at xhigh effort. A reviewer that prints `>>> TIMED OUT` / `>>> FAILED` / `>>> SKIPPED`
      produced nothing — that is an **incomplete panel**, never "no ambiguity found."

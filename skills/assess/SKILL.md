@@ -55,6 +55,14 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
      at `high` by default for that reason; `ASSESS_PI_EFFORT=xhigh` buys the top tier at
      that cost.
 
+   - **Run it OUTSIDE your Bash sandbox** (in Claude Code: `dangerouslyDisableSandbox`).
+     Every reviewer here is a network client, and a sandbox that routes egress through a
+     host-allowlisted proxy refuses the tunnel to whichever provider is not on the list.
+     The reviewer then dies *slowly* — codex spends five WebSocket reconnects and a
+     transport fallback before exiting 1 — and the log reads like a flaky provider, so the
+     natural response is to re-run it and pay again. `panel.sh` probes for this and turns
+     it into an immediate `>>> SKIPPED` naming the host, but it cannot fix it from inside:
+     only the caller can choose not to sandbox the call.
    - **Give the Bash call a long timeout** — set the Bash tool `timeout` to the max
      (`600000` ms). Codex and Claude run at **xhigh** effort and may Read/Grep the repo, so
      they can take several minutes; the default 2-min Bash timeout would kill the panel

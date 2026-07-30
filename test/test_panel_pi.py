@@ -77,6 +77,21 @@ cat >/dev/null
 exit 0
 """
 
+# Stands in for the egress proxy. Records every host the preflight asks about, and
+# answers with a CONNECT status: 403 for hosts named in CURL_STUB_REFUSE, otherwise
+# CURL_STUB_STATUS (default 200). It writes ONLY the -w value to stdout, like real curl
+# with -o /dev/null.
+CURL_STUB = """#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in https://*) url="$a" ;; esac; done
+host="${url#https://}"; host="${host%%/*}"
+[ -n "${CURL_STUB_LOG:-}" ] && printf '%s\\n' "$host" >>"$CURL_STUB_LOG"
+for h in ${CURL_STUB_REFUSE:-}; do
+  [ "$h" = "$host" ] && { printf '403'; exit 0; }
+done
+printf '%s' "${CURL_STUB_STATUS:-200}"
+"""
+
 PI_STUB_FAILS = """#!/usr/bin/env bash
 for a in "$@"; do
   # Real pi prints the model table on STDERR. A preflight that reads only stdout
@@ -121,6 +136,13 @@ class PanelPiTest(unittest.TestCase):
         e["PI_CODING_AGENT_DIR"] = str(self.agent_dir)
         e.pop("ASSESS_PANEL_PI", None)
         e.pop("OPENROUTER_API_KEY", None)
+        # The network preflight fires only when an egress proxy is configured. The suite
+        # runs inside a sandbox that sets these, so leaving them in place would have every
+        # unrelated test making real CONNECT probes — slow, flaky, and dependent on whose
+        # machine runs it. Tests that want the preflight put a stub curl on PATH and set
+        # HTTPS_PROXY back themselves.
+        for var in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
+            e.pop(var, None)
         e.update(env or {})
         cmd = ["bash", str(PANEL), "--mode", mode, str(self.artifact), *args]
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=e,
@@ -472,6 +494,170 @@ done
         self.assertIn("FAILED (exit 1)", r.stdout)
         self.assertIn("both say fine", r.stdout)
         self.assertNotIn("2-1 split", r.stdout)
+
+    # --- network preflight ----------------------------------------------
+
+    def _proxied(self, refuse=(), status=None, **env):
+        """Arrange a sandbox-like run: a stub curl, a proxy, and codex on ChatGPT auth."""
+        self._stub("curl", CURL_STUB)
+        (Path(self.tmp) / ".codex").mkdir(exist_ok=True)
+        (Path(self.tmp) / ".codex" / "auth.json").write_text('{"auth_mode": "chatgpt"}')
+        e = {"HTTPS_PROXY": "http://127.0.0.1:1/",
+             "CURL_STUB_LOG": str(Path(self.tmp) / "curl.log"),
+             "CURL_STUB_REFUSE": " ".join(refuse)}
+        if status:
+            e["CURL_STUB_STATUS"] = status
+        e.update(env)
+        return e
+
+    def _probed_hosts(self):
+        log = Path(self.tmp) / "curl.log"
+        return log.read_text().split() if log.exists() else []
+
+    def test_no_proxy_means_no_probe_at_all(self):
+        # The probe answers a question only a CONNECT proxy can raise. On an ordinary
+        # machine it must cost nothing — not a round-trip, not a millisecond.
+        self._stub("curl", CURL_STUB)
+        r = self.run_panel("some task",
+                           env={"CURL_STUB_LOG": str(Path(self.tmp) / "curl.log")})
+        self.assertEqual([], self._probed_hosts())
+        self.assertIn("CODEX-STUB-REVIEW", r.stdout)
+
+    def test_probe_can_be_switched_off(self):
+        r = self.run_panel("some task", env=self._proxied(refuse=["chatgpt.com"],
+                                                          ASSESS_PANEL_NET_PROBE="0"))
+        self.assertEqual([], self._probed_hosts())
+        self.assertIn("CODEX-STUB-REVIEW", r.stdout)
+
+    def test_refused_tunnel_skips_codex_with_the_reason(self):
+        r = self.run_panel("some task", env=self._proxied(refuse=["chatgpt.com"]))
+        self.assertIn("chatgpt.com", self._probed_hosts())
+        self.assertIn(">>> SKIPPED", r.stdout)
+        self.assertIn("refused a CONNECT tunnel to chatgpt.com (status 403)", r.stdout)
+        # Skipped means NOT LAUNCHED. Starting it anyway would spend the reconnect
+        # budget to reach the conclusion the preflight already has.
+        self.assertNotIn("CODEX-STUB-REVIEW", r.stdout)
+        # ...and the panel still delivers the reviewer that can run.
+        self.assertIn("CLAUDE-STUB-REVIEW", r.stdout)
+        self.assertIn("END PANEL", r.stdout)
+
+    def test_fresh_claude_alone_left_standing_is_called_a_single_lineage(self):
+        # The failure the whole panel exists to prevent: one lineage reviewed, and the
+        # output still reads like a panel. It must say so where nobody can miss it.
+        r = self.run_panel("some task", env=self._proxied(refuse=["chatgpt.com"]))
+        self.assertIn("NO CROSS-LINEAGE REVIEW HAPPENED", r.stdout)
+        self.assertIn("Do NOT report this as a panel", r.stdout)
+        # And none of the panel-shaped advice: every line of it weighs reviewers against
+        # each other, which is what dresses a single-lineage self-check up as a panel.
+        self.assertNotIn("both say fine", r.stdout)
+        self.assertNotIn("Reconcile by axis", r.stdout)
+        self.assertNotIn("disagreement is signal", r.stdout)
+
+    def test_origin_403_through_an_open_tunnel_does_not_skip(self):
+        # chatgpt.com answers a bare curl with 403 (bot protection) even when the tunnel
+        # is wide open. Keying the skip on the HTTP status instead of the CONNECT status
+        # would cost the panel its cross-lineage voice to its own diagnostic.
+        r = self.run_panel("some task", env=self._proxied(status="200"))
+        self.assertIn("chatgpt.com", self._probed_hosts())
+        self.assertNotIn(">>> SKIPPED", r.stdout)
+        self.assertIn("CODEX-STUB-REVIEW", r.stdout)
+
+    def test_a_proxy_having_a_bad_moment_does_not_veto_a_reviewer(self):
+        # 5xx is the proxy failing, not the proxy refusing: it says nothing about whether
+        # the host is allowed, and it is transient. Spending a lineage on one flaky second
+        # would make this diagnostic cost more than the failure it exists to name.
+        r = self.run_panel("some task", env=self._proxied(status="502"))
+        self.assertNotIn(">>> SKIPPED", r.stdout)
+        self.assertIn("CODEX-STUB-REVIEW", r.stdout)
+
+    def test_a_probe_that_got_no_answer_does_not_veto_a_reviewer(self):
+        # 000 is what curl reports with no proxy in the path or no answer at all. It is
+        # the absence of evidence, and it must never be spent as evidence of refusal.
+        r = self.run_panel("some task", env=self._proxied(status="000"))
+        self.assertNotIn(">>> SKIPPED", r.stdout)
+        self.assertIn("CODEX-STUB-REVIEW", r.stdout)
+
+    def test_refused_tunnel_skips_pi_with_the_provider_host(self):
+        # The host comes from the provider's own baseUrl in models.json, so a pi pointed
+        # at a different gateway is judged against the gateway it will actually call.
+        self._models_json({})
+        self._stub("pi", PI_STUB)
+        r = self.run_panel("some task", env=self._proxied(refuse=["openrouter.ai"],
+                                                          ASSESS_PANEL_PI="1",
+                                                          OPENROUTER_API_KEY="k"))
+        self.assertIn("openrouter.ai", self._probed_hosts())
+        self.assertIn("refused a CONNECT tunnel to openrouter.ai", r.stdout)
+        self.assertIn("Do NOT count this as a third lineage", r.stdout)
+        self.assertNotIn("PI-STUB-REVIEW", r.stdout)
+        # codex's own host was open, so it still ran — one refusal, one lineage lost.
+        self.assertIn("CODEX-STUB-REVIEW", r.stdout)
+
+    def test_an_existing_pi_skip_is_not_overwritten_by_the_probe(self):
+        # A pi that was already unavailable for a nameable reason keeps that reason:
+        # "the proxy refused openrouter.ai" would send the user to the sandbox config
+        # over a credential they never set.
+        self._models_json({})
+        r = self.run_panel("some task", env=self._proxied(refuse=["openrouter.ai"],
+                                                          ASSESS_PANEL_PI="1"))
+        self.assertIn("not on PATH", r.stdout)
+        self.assertNotIn("refused a CONNECT tunnel to openrouter.ai", r.stdout)
+
+    def test_claude_is_never_skipped_over_the_probe(self):
+        # Claude is the one mandatory voice: refusing to launch it turns a degraded panel
+        # into no output at all, so a refused tunnel must not stop it from trying.
+        r = self.run_panel("some task", env=self._proxied(refuse=["api.anthropic.com"]))
+        self.assertIn("api.anthropic.com", self._probed_hosts())
+        self.assertIn("CLAUDE-STUB-REVIEW", r.stdout)
+
+    def test_a_probe_proved_wrong_does_not_annotate_a_complete_review(self):
+        # The reviewer answered anyway, so the probe was wrong about it. Stapling "this was
+        # expected to fail" onto a review the caller has just read is the diagnostic
+        # contradicting the evidence sitting directly above it.
+        r = self.run_panel("some task", env=self._proxied(refuse=["api.anthropic.com"]))
+        self.assertNotIn("refused a CONNECT tunnel to api.anthropic.com", r.stdout)
+
+    def test_a_claude_that_did_fail_gets_the_probed_cause_named(self):
+        self._stub("claude", "#!/usr/bin/env bash\ncat >/dev/null\necho nope >&2\nexit 1\n")
+        r = self.run_panel("some task", env=self._proxied(refuse=["api.anthropic.com"]))
+        self.assertIn("FAILED (exit 1)", r.stdout)
+        self.assertIn("refused a CONNECT tunnel to api.anthropic.com", r.stdout)
+
+    def test_a_nonstandard_port_is_probed_where_the_gateway_actually_is(self):
+        # Dropping the port would probe 443 instead — and 443 open while the gateway's own
+        # port is blocked reads as "all clear", which is the wrong way to be wrong.
+        self.run_panel("some task",
+                       env=self._proxied(OPENAI_BASE_URL="https://gw.internal:8443/v1"))
+        self.assertIn("gw.internal:8443", self._probed_hosts())
+
+    def test_credentials_in_a_base_url_are_not_echoed_into_the_panel(self):
+        # The host goes into a skip message, and a skip message goes into a transcript.
+        # A base URL written as user:pass@host must not put the key there.
+        r = self.run_panel("some task", env=self._proxied(
+            refuse=["gw.internal"], OPENAI_BASE_URL="https://user:hunter2@gw.internal/v1"))
+        self.assertIn("refused a CONNECT tunnel to gw.internal", r.stdout)
+        self.assertNotIn("hunter2", r.stdout)
+        self.assertNotIn("hunter2", r.stderr)
+
+    def test_a_dead_codex_alone_also_triggers_the_single_lineage_banner(self):
+        # The banner is not about the network — it is about what actually reviewed the
+        # work. A codex that simply crashed, with pi off, leaves the same one lineage as
+        # a codex the proxy refused, and the two must read identically.
+        self._stub("codex", "#!/usr/bin/env bash\ncat >/dev/null\necho boom >&2\nexit 1\n")
+        r = self.run_panel("some task")
+        self.assertIn("FAILED (exit 1)", r.stdout)
+        self.assertIn("NO CROSS-LINEAGE REVIEW HAPPENED", r.stdout)
+        self.assertNotIn("both say fine", r.stdout)
+
+    def test_api_key_auth_is_probed_at_the_api_host_not_chatgpt(self):
+        # codex picks its endpoint by auth mode, and probing the wrong one would either
+        # skip a working reviewer or miss the refusal entirely.
+        env = self._proxied()
+        (Path(self.tmp) / ".codex" / "auth.json").write_text(
+            '{"auth_mode": "apikey", "OPENAI_API_KEY": "sk-test"}')
+        self.run_panel("some task", env=env)
+        hosts = self._probed_hosts()
+        self.assertIn("api.openai.com", hosts)
+        self.assertNotIn("chatgpt.com", hosts)
 
 
 class RealPiContractTest(unittest.TestCase):

@@ -59,6 +59,12 @@
 # such as kimi-k3 exists only if ~/.pi/agent/models.json defines it. Each of those is
 # preflighted and, if missing, reported as an explicit SKIP with the reason.
 #
+# Egress:
+#   ASSESS_PANEL_NET_PROBE=0 skip the network preflight (see the block below). It only
+#                            runs when an egress proxy is configured, and it can only
+#                            ever turn a slow failure into an immediate stated one.
+#   ASSESS_PANEL_NET_TIMEOUT seconds per host probe, default 8.
+#
 # Reviewers root in $PWD (override: ASSESS_PANEL_ROOT) so they can Read/Grep the
 # project, not just the artifact text. Per-reviewer timeout: ASSESS_PANEL_TIMEOUT (540s).
 # Codex and Claude run at xhigh; pi runs at the effort REQUESTED, which pi silently clamps
@@ -209,6 +215,7 @@ esac
 pi_skip=""          # non-empty => print this reason instead of a review
 pi_notes=""         # non-fatal caveats, printed INSIDE the reviewer's own section
 pi_api_key=""       # empty is legitimate: OAuth providers authenticate via auth.json
+pi_host=""          # provider endpoint, filled from models.json for the network preflight
 PI_MODEL="${ASSESS_PI_MODEL:-moonshotai/kimi-k3}"
 PI_PROVIDER="${ASSESS_PI_PROVIDER:-openrouter}"
 PI_EFFORT="${ASSESS_PI_EFFORT:-high}"
@@ -230,6 +237,18 @@ try:
 except Exception:
     sys.exit(0)
 prov = (cfg.get("providers") or {}).get(provider) or {}
+# The provider's endpoint host, for the network preflight further down. Printed BEFORE
+# any early exit below: "can this machine reach the provider" is a different question
+# from "is this model configured", and it still needs an answer when the model checks
+# bail out. A built-in provider declares no baseUrl here — then say nothing rather than
+# guess a host, because probing the wrong one is worse than not probing.
+_bu = prov.get("baseUrl")
+if isinstance(_bu, str) and "//" in _bu:
+    # Host and port, but never the userinfo: a key embedded in the URL as user:pass@host
+    # would otherwise be printed back in a skip message, i.e. into a transcript.
+    _h = _bu.split("//", 1)[1].split("/", 1)[0].split("@")[-1]
+    if _h:
+        print("host=" + _h)
 # pi resolves `apiKey` three ways: an env-var NAME, a literal "sk-…", or "!command".
 # Only the first is a variable this script may look up; the other two mean models.json
 # authenticates pi by itself. Report which, and never echo the value — a literal key
@@ -339,6 +358,7 @@ if [ "$pi_enabled" = 1 ]; then
   if [ -z "$pi_skip" ]; then
     while IFS='=' read -r k v; do
       case "$k" in
+        host)      pi_host="$v" ;;
         keyvar)    [ -n "$PI_KEY_VAR" ] || PI_KEY_VAR="$v" ;;
         selfauth)  pi_selfauth="$v" ;;
         declared)  pi_declared="$v" ;;
@@ -442,6 +462,9 @@ EOF
       # as "unknown model" would send the caller to edit models.json over a hung node
       # process — the same misdiagnosis this preflight exists to prevent.
       pi_skip="the model preflight (\`pi --list-models\`) failed or exceeded 60s, so the model could not be verified. Last output: $(tr '\n' ' ' <"$tmp/pi-models.txt" 2>/dev/null | tail -c 200)"
+      # This is the one skip reason that names no cause. The network preflight below is
+      # allowed to replace it precisely because "we don't know" must lose to "we do".
+      pi_skip_cause_unknown=1
     fi
   fi
 
@@ -484,6 +507,143 @@ EOF
       pi_notes="$pi_notes>>> NOTE — this reviewer had no working $pi_missing_tools, so it searched less of the repo than the others; --offline stops pi fetching them mid-review. Install them for parity.
 "
     fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Network preflight — the other half of the caller's sandbox.
+#
+# The CODEX_HOME self-heal above fixes the filesystem half. This is the egress half,
+# and unlike the first it CANNOT be self-healed from in here — only named. Claude Code's
+# Bash sandbox routes every outbound connection through a CONNECT proxy with a host
+# allowlist; when a reviewer's endpoint is off it, the proxy refuses the tunnel and the
+# CLI dies only AFTER exhausting its retry budget (codex: five WebSocket reconnects, then
+# a fallback to the HTTPS transport, then exit 1). In the log that reads like a flaky
+# provider, so the caller re-runs it — and pays the same minutes again. Naming it here
+# costs one round-trip and turns a slow misleading failure into an immediate stated one.
+#
+# Discriminate on the CONNECT status, NEVER on the HTTP status. chatgpt.com answers a bare
+# curl with 403 (bot protection) through a WIDE OPEN tunnel, so keying on %{http_code}
+# would skip a reviewer that was about to work perfectly — the panel would lose a lineage
+# to its own diagnostic. %{http_connect} is the proxy's answer to the tunnel request
+# itself: 2xx means it let us through and whatever the origin said afterwards is the
+# origin's business; 4xx is the proxy refusing on POLICY (403 not on the allowlist, 407
+# wants credentials), which is deterministic — retrying or waiting cannot change it.
+# Everything else is NOT evidence and must never cost a reviewer its slot: 000 is "no
+# proxy in the path, or no answer at all", and 5xx is a proxy having a bad moment, which
+# is exactly when skipping a reviewer would turn one flaky second into a lost lineage.
+#
+# Gated on a proxy actually being configured, so an ordinary unsandboxed run makes no
+# network calls here at all. curl missing => no probe, for the same reason: a prober that
+# cannot run must not be able to veto a reviewer.
+# ---------------------------------------------------------------------------
+codex_skip=""
+claude_net_note=""
+net_unprobed=""
+net_probe=0
+case "${ASSESS_PANEL_NET_PROBE:-1}" in
+  0|false|no|off) ;;
+  *)
+    # A SOCKS proxy is excluded on purpose. There is no CONNECT exchange in SOCKS, so curl
+    # reports http_connect=000 no matter what the proxy does — the probe would cost a
+    # round-trip per host and be structurally incapable of ever answering. A value with no
+    # scheme still counts: curl defaults those to http, which does tunnel.
+    for _p in "${HTTPS_PROXY:-}" "${https_proxy:-}" "${ALL_PROXY:-}" "${all_proxy:-}"; do
+      case "$_p" in
+        socks*|"") ;;
+        *) command -v curl >/dev/null 2>&1 && net_probe=1; break ;;
+      esac
+    done ;;
+esac
+
+if [ "$net_probe" = 1 ]; then
+  # Which host each reviewer actually authenticates against. Guessing is not allowed:
+  # an unprobed reviewer just behaves as it does today, while a reviewer skipped over the
+  # wrong host is a lineage lost to a bug in this block.
+  #
+  # codex has two endpoints and picks by auth mode — ChatGPT sign-in talks to chatgpt.com,
+  # an API key talks to api.openai.com. auth.json is the same file codex itself reads.
+  net_codex_host=""
+  case "${OPENAI_BASE_URL:-}" in
+    http://*|https://*) net_codex_host="${OPENAI_BASE_URL#*://}" ;;
+    # A config.toml that declares its own base_url (a custom model_provider) overrides the
+    # auth-mode inference entirely, and parsing TOML here to find out which one wins is not
+    # worth it. Abstain instead: an unprobed reviewer behaves exactly as it does today,
+    # while one skipped over a host it never calls is a lineage lost to a guess.
+    *) if grep -qE '^[[:space:]]*base_url[[:space:]]*=' "$codex_home/config.toml" 2>/dev/null; then
+        :
+      elif grep -qE '"auth_mode"[[:space:]]*:[[:space:]]*"chatgpt"' "$codex_home/auth.json" 2>/dev/null; then
+        net_codex_host="chatgpt.com"
+      elif grep -qE '"auth_mode"[[:space:]]*:[[:space:]]*"apikey"' "$codex_home/auth.json" 2>/dev/null \
+        || [ -n "${OPENAI_API_KEY:-}" ]; then
+        net_codex_host="api.openai.com"
+      fi ;;
+  esac
+  net_claude_host="api.anthropic.com"
+  case "${ANTHROPIC_BASE_URL:-}" in
+    http://*|https://*) net_claude_host="${ANTHROPIC_BASE_URL#*://}" ;;
+  esac
+  # Strip the path and — importantly — any userinfo@, because this string is printed back
+  # in the skip message: a base URL written as user:pass@host would put the credential in
+  # a transcript, which is the one failure mode this whole script refuses everywhere else.
+  # The :port is KEPT on purpose: a gateway configured on a non-standard port is reached
+  # there, and probing 443 instead answers a question nobody asked — in the dangerous
+  # direction, since 443 open while the real port is blocked reads as "all clear".
+  net_host() { printf '%s' "${1%%/*}" | sed -e 's/.*@//'; }
+  net_codex_host="$(net_host "$net_codex_host")"
+  net_claude_host="$(net_host "$net_claude_host")"
+  net_pi_host="$(net_host "$pi_host")"
+
+  # In parallel: three sequential probes would add three timeouts to a budget the panel
+  # already charges the pi preflight against. curl writes %{http_connect} even when the
+  # request itself fails, so every started probe leaves a file behind to read.
+  net_secs="${ASSESS_PANEL_NET_TIMEOUT:-8}"
+  net_pids=""
+  net_i=0
+  for h in "$net_codex_host" "$net_claude_host" "$net_pi_host"; do
+    net_i=$((net_i + 1))
+    [ -n "$h" ] || continue
+    ( curl -sS -m "$net_secs" -o /dev/null -w '%{http_connect}' "https://$h/" \
+        >"$tmp/net-$net_i" 2>/dev/null ) &
+    net_pids="$net_pids $!"
+  done
+  for p in $net_pids; do wait "$p" 2>/dev/null; done
+
+  # Print the refusing status, or nothing when the probe is not evidence of refusal.
+  net_refusal() { # net_refusal <index>
+    local s; s="$(cat "$tmp/net-$1" 2>/dev/null)"
+    case "$s" in
+      4[0-9][0-9]) printf '%s' "$s" ;;
+      *) ;;
+    esac
+  }
+  net_fix="Re-run the panel with direct egress: outside the caller's sandbox (in Claude Code, a Bash call with the sandbox disabled), or allowlist the host in the sandbox config."
+
+  # 407 is a refusal too, but not the same one: the proxy wants credentials, and telling the
+  # caller to allowlist a host would send them to edit the wrong config.
+  net_advice() { case "$1" in 407) echo "The proxy demands credentials for this host — supply them, or run outside it." ;; *) echo "$net_fix" ;; esac; }
+
+  net_st="$(net_refusal 1)"
+  [ -n "$net_st" ] && codex_skip="the egress proxy refused a CONNECT tunnel to $net_codex_host (status $net_st), which is where this reviewer authenticates. Launching it would spend its whole reconnect budget and exit non-zero on the same refusal. $(net_advice "$net_st")"
+
+  net_st="$(net_refusal 2)"
+  [ -n "$net_st" ] && claude_net_note=">>> NOTE — the egress proxy refused a CONNECT tunnel to $net_claude_host (status $net_st) during the preflight, which is the likely cause of the failure above. It was launched anyway: it is the panel's only mandatory voice, and refusing to try would leave nothing at all. $(net_advice "$net_st")
+"
+
+  # An existing pi_skip normally WINS — "pi is not on PATH" is a nameable cause and the proxy
+  # is beside the point. The exception is the skip that means we do not know why: letting an
+  # unknown cause suppress a known one sends the caller to edit models.json over a proxy,
+  # which is the misdiagnosis-by-confident-wrong-cause this whole block exists to end.
+  net_st="$(net_refusal 3)"
+  if [ -n "$net_st" ] && { [ -z "$pi_skip" ] || [ "${pi_skip_cause_unknown:-0}" = 1 ]; }; then
+    pi_skip="the egress proxy refused a CONNECT tunnel to $net_pi_host (status $net_st), which is where provider '$PI_PROVIDER' is reached. $(net_advice "$net_st")"
+  fi
+
+  # Endpoints a proxy is in front of but we could not name. Reported after the panel: an
+  # unchecked reviewer must not be indistinguishable from a checked-and-clear one.
+  [ -z "$net_codex_host" ]  && net_unprobed="Codex"
+  if [ "$pi_enabled" = 1 ] && [ -z "$pi_skip" ] && [ -z "$net_pi_host" ]; then
+    [ -n "$net_unprobed" ] && net_unprobed="$net_unprobed and Pi" || net_unprobed="Pi"
   fi
 fi
 
@@ -639,12 +799,16 @@ pi_out="$tmp/pi.txt"
 set -m
 
 # Codex — different lineage. Reads prompt from stdin, writes final message to -o.
-( printf '%s' "$codex_prompt" | codex exec \
-    -m "$CODEX_MODEL" \
-    -c "model_reasoning_effort=\"$CODEX_EFFORT\"" \
-    --skip-git-repo-check --sandbox read-only --ephemeral --color never \
-    -C "$root" -o "$codex_out" >/dev/null 2>"$tmp/codex.log" ) &
-codex_pid=$!
+# Not launched when the network preflight already proved its endpoint unreachable: the
+# run could only end in the same refusal, minutes later and worded as a provider error.
+if [ -z "$codex_skip" ]; then
+  ( printf '%s' "$codex_prompt" | codex exec \
+      -m "$CODEX_MODEL" \
+      -c "model_reasoning_effort=\"$CODEX_EFFORT\"" \
+      --skip-git-repo-check --sandbox read-only --ephemeral --color never \
+      -C "$root" -o "$codex_out" >/dev/null 2>"$tmp/codex.log" ) &
+  codex_pid=$!
+fi
 
 # Fresh Claude — clean context, read-only tools, no MCP.
 # Prompt goes via stdin: --add-dir/--allowedTools are variadic and would otherwise
@@ -680,15 +844,17 @@ fi
 # the wrapper subshell AND everything beneath it (codex/claude and any grandchild),
 # and the subshell dying on SIGTERM keeps `wait` returning 143, which report() relies
 # on. disown so the shell doesn't print a "Terminated" job message when we kill it.
-watchdog_victims="-$codex_pid -$claude_pid"
-[ -n "${pi_pid:-}" ] && watchdog_victims="$watchdog_victims -$pi_pid"
+watchdog_victims="-$claude_pid"
+[ -n "${codex_pid:-}" ] && watchdog_victims="$watchdog_victims -$codex_pid"
+[ -n "${pi_pid:-}" ]    && watchdog_victims="$watchdog_victims -$pi_pid"
 ( sleep "$TIMEOUT"; : >"$tmp/timedout"
   kill -TERM -- $watchdog_victims 2>/dev/null ) &
 watchdog_pid=$!
 set +m
 disown "$watchdog_pid" 2>/dev/null || true
 
-wait "$codex_pid" 2>/dev/null; codex_rc=$?
+codex_rc=0
+[ -n "${codex_pid:-}" ] && { wait "$codex_pid" 2>/dev/null; codex_rc=$?; }
 wait "$claude_pid" 2>/dev/null; claude_rc=$?
 pi_rc=0
 [ -n "${pi_pid:-}" ] && { wait "$pi_pid" 2>/dev/null; pi_rc=$?; }
@@ -725,6 +891,23 @@ report() { # report <label> <outfile> <logfile> <rc>
   fi
 }
 
+# "Ran" must mean PRODUCED A USABLE REVIEW, not "was launched" — a reviewer that timed out,
+# died, or returned nothing leaves one lineage fewer, and a footer counting launches would
+# tell the caller to diff assumption lists and lean on findings that do not exist. Computed
+# HERE, before anything is printed, because the section banners make claims about the run's
+# composition too: saying "this was the panel's cross-lineage voice" while a working pi sits
+# twenty lines below is the same overclaim as a wrong footer, in the louder place.
+codex_ran=0
+[ -z "$codex_skip" ] && [ "$codex_rc" -eq 0 ] && [ -s "$codex_out" ] && codex_ran=1
+claude_ran=0
+[ "$claude_rc" -eq 0 ] && [ -s "$claude_out" ] && claude_ran=1
+pi_ran=0
+[ "$pi_enabled" = 1 ] && [ -z "$pi_skip" ] && [ "$pi_rc" -eq 0 ] && [ -s "$pi_out" ] && pi_ran=1
+reviewers_ran=$((codex_ran + claude_ran + pi_ran))
+# Codex and pi are the only FOREIGN voices: the fresh Claude shares a lineage with the
+# caller, so a run in which only it answered has produced no decorrelation at all.
+foreign_ran=$((codex_ran + pi_ran))
+
 if [ "$mode" = scope ]; then
   codex_label="CODEX ($CODEX_MODEL — interpretation schema, different lineage)"
   claude_label="FRESH CLAUDE (assumptions + pre-mortem — clean context)"
@@ -735,9 +918,23 @@ else
   pi_label="PI ($PI_MODEL, effort requested: $PI_EFFORT — third lineage)"
 fi
 
-report "$codex_label" "$codex_out" "$tmp/codex.log" "$codex_rc"
+if [ -n "$codex_skip" ]; then
+  echo "================ $codex_label ================"
+  echo ">>> SKIPPED — this reviewer did NOT run: $codex_skip"
+  if [ "$pi_ran" = 1 ]; then
+    echo ">>> One of the panel's two cross-lineage voices is gone; Pi's below is the other."
+  else
+    echo ">>> This was the panel's ONLY cross-lineage voice. Do NOT read the sections below as a panel agreeing."
+  fi
+else
+  report "$codex_label" "$codex_out" "$tmp/codex.log" "$codex_rc"
+fi
 echo
 report "$claude_label" "$claude_out" "$tmp/claude.log" "$claude_rc"
+# Caveat last, next to the output it qualifies — same placement as pi's notes below. Only
+# when this reviewer actually came back empty-handed: a probe that must never cost a
+# reviewer its slot must equally not cast doubt on a complete review it was wrong about.
+[ -n "$claude_net_note" ] && [ "$claude_ran" = 0 ] && printf '%s' "$claude_net_note"
 # Only speak about pi when it was asked for. Silence here is correct when it is off (the
 # panel genuinely IS two reviewers), but never when it was on — an enabled-then-absent
 # reviewer read as silence is exactly the one-lineage collapse this section guards.
@@ -754,23 +951,42 @@ if [ "$pi_enabled" = 1 ]; then
     [ -n "$pi_notes" ] && printf '%s' "$pi_notes"
   fi
 fi
+# A proxy is in the path but a reviewer's endpoint could not be worked out, so it was never
+# checked. Say it: the whole point of the preflight is that an unexplained slow death sends
+# the caller looking in the wrong place, and "we did not look" left unsaid reads exactly
+# like "we looked and it was fine".
+[ -n "${net_unprobed:-}" ] && \
+  echo ">>> NOTE — an egress proxy is configured, but the endpoint for $net_unprobed could not be determined, so it was NOT checked. A slow refusal is still possible there."
 echo
 echo "================ END PANEL ================"
-# "Ran" must mean PRODUCED A USABLE REVIEW, not "was launched". A pi that timed out, died,
-# or returned nothing still leaves two lineages, and the three-reviewer footer would tell
-# the caller to diff three assumption lists and lean on findings that do not exist.
-pi_ran=0
-[ "$pi_enabled" = 1 ] && [ -z "$pi_skip" ] && [ "$pi_rc" -eq 0 ] && [ -s "$pi_out" ] && pi_ran=1
 
-if [ "$mode" = scope ]; then
+if [ "$foreign_ran" = 0 ]; then
+  echo "!!! NO CROSS-LINEAGE REVIEW HAPPENED — every foreign reviewer skipped, failed, or"
+  echo "!!! returned nothing, so ANYTHING above comes from the Claude lineage alone. The"
+  echo "!!! panel's entire value is decorrelation, and this run produced none of it."
+  echo
+  # No reconciliation advice below. Every line of it is about weighing reviewers against
+  # each other, and there is nothing to weigh — printing it anyway is what dresses a
+  # single-lineage self-check up as a panel, which is the failure this whole section exists
+  # to refuse. Two instructions, both about the hole rather than the findings:
+  echo "Do NOT report this as a panel. Report it as a single-lineage self-check, name the"
+  echo "reviewer that did not run and why, and re-run once the cause above is fixed. Anything"
+  echo "above is worth reading on its own merits — it is just not corroborated by anyone."
+elif [ "$mode" = scope ]; then
   echo "Reconcile by UNION — the OPPOSITE of review mode. Nothing is built yet, so there is"
   echo "no evidence to kill a finding with, and a false alarm is far cheaper than a misread task:"
-  if [ "$pi_ran" = 1 ]; then
+  # Counted over reviewers that actually ANSWERED, fresh Claude included: it is the one that
+  # always launches, so a footer that assumes it succeeded is the assumption most likely to
+  # be quietly wrong — and it would send the caller to diff a list that isn't there.
+  if [ "$reviewers_ran" -ge 3 ]; then
     echo " - ASSUMPTIONS is the only slot ALL THREE reviewers answer, so it is the only cross-lineage"
     echo "   comparison available -> read those three lists first and diff them"
-  else
+  elif [ "$reviewers_ran" = 2 ]; then
     echo " - ASSUMPTIONS is the only slot BOTH reviewers answer, so it is the only cross-lineage"
     echo "   comparison available -> read those two lists first and diff them"
+  else
+    echo " - only ONE reviewer answered, so there is NOTHING to diff: the cross-lineage comparison"
+    echo "   this mode exists for did not happen -> treat the list above as one opinion"
   fi
   echo " - assumptions that DIVERGE are the whole point -> put them to the user as an explicit"
   echo "   choice; do NOT silently pick one, and do NOT average them into a compromise reading"
@@ -797,12 +1013,16 @@ else
   echo "Reconcile by axis (do NOT majority-vote):"
   echo " - verifiable finding -> check it yourself, fix if real"
   echo " - raised by one reviewer only -> investigate; disagreement is signal"
-  if [ "$pi_ran" = 1 ]; then
+  # Same counting rule as scope mode, and for the same reason: "all three say fine" printed
+  # over two reviewers is the panel manufacturing the confidence it exists to earn.
+  if [ "$reviewers_ran" -ge 3 ]; then
     echo " - a 2-1 split is NOT a vote you may settle by counting: you and the fresh Claude share a"
     echo "   lineage, so the two Anthropic voices agreeing against Codex or Pi is one voice, not two"
     echo " - all three say fine -> high confidence"
-  else
+  elif [ "$reviewers_ran" = 2 ]; then
     echo " - both say fine -> high confidence"
+  else
+    echo " - one reviewer is not agreement -> 'it says fine' buys you nothing here"
   fi
   echo " - a reviewer TIMED OUT / FAILED / SKIPPED -> panel is INCOMPLETE; say so and re-run, do NOT treat as 'all clear'"
 fi
