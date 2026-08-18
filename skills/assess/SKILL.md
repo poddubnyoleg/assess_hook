@@ -21,6 +21,11 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
 
 1. **Do the full Normal self-review first** — every relevant criterion in the
    "Double-Check" section below. Turbo never skips it; the panel is added on top.
+   **Write your findings down as a list NOW, before the panel returns** — step 6 logs
+   which findings were yours (`self`), and labelling them after you have read the
+   panel's output invites hindsight in both directions: "I'd have caught that too"
+   deflates the panel's beyond-self metric exactly as much as forgetting to log
+   yourself inflates it. The list you carry into step 6 must be this one, verbatim.
 2. Gather what to review into one file — **include NEW files, not just tracked edits**.
    Put it in your session scratchpad directory if you have one, else under `$TMPDIR`
    (bare `/tmp` is typically NOT writable under the Bash sandbox, and a fixed name
@@ -41,17 +46,24 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
    )"
    bash ~/.claude/skills/assess/panel.sh "$ART" "$TASK"
    ```
-   This runs Codex (a different model) and a fresh Claude (clean context, no anchoring),
-   in parallel, each told to refute — not approve. Each is read-only.
+   This runs Codex (a different model), a fresh Claude (clean context, no anchoring),
+   and Grok (xAI's grok-4.6 — a third lineage, **on by default**), in parallel, each told
+   to refute — not approve. Each is read-only.
 
-   - An optional **third lineage** (pi driving Kimi K3) is available with
+   - **Grok** needs the `grok` CLI authenticated (`grok login`); when it can't run, the
+     panel prints `>>> SKIPPED` with the reason and continues with the rest. Disable it
+     with `ASSESS_PANEL_GROK=0`; override with `ASSESS_GROK_MODEL` / `ASSESS_GROK_EFFORT`
+     (default `grok-4.6` at `xhigh`, its top tier — the CLI rejects a level the model
+     doesn't support rather than clamping, so a bad value fails fast and loud).
+
+   - An optional **fourth lineage** (pi driving Kimi K3) is available with
      `ASSESS_PANEL_PI=1` prefixed to the command. It is off by default because it needs a
      binary and a provider key that may not exist on this machine; when it can't run it
-     prints `>>> SKIPPED` with the reason and the panel continues with two. Turn it on when
+     prints `>>> SKIPPED` with the reason and the panel continues without it. Turn it on when
      the artifact is important enough to be worth the extra lineage and the extra cost.
      **On a large artifact, run the panel BACKGROUNDED with `ASSESS_PANEL_TIMEOUT=1500`** —
-     it is the slowest of the three, and at max effort it overran the 540s default on a
-     ~1,100-line diff, handing back a TIMED OUT third reviewer after nine minutes. It runs
+     it is the slowest reviewer on the panel, and at max effort it overran the 540s default
+     on a ~1,100-line diff, handing back a TIMED OUT reviewer after nine minutes. It runs
      at `high` by default for that reason; `ASSESS_PI_EFFORT=xhigh` buys the top tier at
      that cost.
 
@@ -92,7 +104,39 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
      disagreement is signal, not a minority to overrule;
    - **all agree it's fine** → high confidence, move on.
 5. Merge your self-review findings and the panel's findings into **one** list.
-6. **Close with the full-work summary** (see "Finish with a self-contained summary"
+6. **Log the verdicts.** If the panel footer printed `Panel run id: <id>`, it also
+   printed the exact `panel_stats.py --log … verdict <id>` command — use **that command
+   verbatim** (it pins the log file this run actually landed in; reconstructing the
+   path can attach your verdicts to the wrong log). **No run id in the footer means
+   telemetry was off or unavailable for this run — skip this step entirely; never
+   substitute another run's id.** Submit **everything in ONE call** — findings from the
+   panel, from your own step-1 self-review, and the refuted ones; a second call for the
+   same run *replaces* the first, it does not add. Feed the JSON on stdin:
+   ```
+   <the footer's command> <<'JSON'
+   {"findings": [
+     {"summary": "length check off by one in parse()",
+      "sources": ["codex"], "severity": "HIGH", "verdict": "confirmed", "action": "fixed"},
+     {"summary": "claimed a race on cache init",
+      "sources": ["claude", "self"], "verdict": "refuted", "action": "dismissed"}
+   ]}
+   JSON
+   ```
+   - `sources` = every voice that **independently** raised it: `codex`, `claude`, `grok`,
+     `pi`, and `self` for your own step-1 self-review (a finding only you raised is
+     `["self"]`). A reviewer is creditable if its review text existed in this run —
+     including partial output printed before a timeout or crash.
+   - `verdict`: `confirmed` (checked against the work, real), `refuted` (checked, wrong),
+     `unverifiable` (could not be settled).
+   - Log the **refuted findings too** — they are the precision signal; logging only what
+     was confirmed flatters every reviewer equally and measures nothing.
+   - Log your **own self-review findings too**, with `self` in `sources` — the list you
+     wrote in step 1, verbatim. If that self-review completed and found **nothing**, say
+     so explicitly with `"self_clean": true` next to `"findings"`: without it, a clean
+     self-review is indistinguishable from a forgotten one, and the panel's beyond-self
+     numbers inflate. Nothing to reconcile from anyone → `{"findings": [],
+     "self_clean": true}`: "panel ran clean" is also data.
+7. **Close with the full-work summary** (see "Finish with a self-contained summary"
    below) — not just the panel delta.
 
 Why the extra reviewers, and why they are not redundant:
@@ -100,8 +144,10 @@ Why the extra reviewers, and why they are not redundant:
   own runs.
 - **Fresh Claude** is the same model with no priming → catches anchoring and
   "solved the wrong problem," which the working session cannot see by itself.
-- **Pi/Kimi** (optional) is a third lineage → the same argument as Codex, again, against a
-  model trained by neither of the other two.
+- **Grok** is a third lineage, on by default → the same argument as Codex, again, against
+  a model trained by neither Anthropic nor OpenAI.
+- **Pi/Kimi** (optional) is a fourth lineage → the argument once more, at extra cost,
+  for artifacts worth it.
 
 ## Double-Check
 

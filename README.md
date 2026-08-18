@@ -13,9 +13,10 @@ When a coding agent finishes a task, the obvious quality check is to have it rev
 
 Add reviewers that **fail differently** from the working agent, so their mistakes don't line up with its blind spots:
 
-- a **different model** — OpenAI's Codex — whose different training catches model-systematic errors; and
-- a **fresh instance of the same model** with a clean context, which, never having seen the session's reasoning, catches anchoring and wrong-problem errors.
-- optionally a **third lineage** — Moonshot's Kimi via the [`pi`](https://pi.dev) agent — off unless you turn it on, because it needs a binary and a provider key this repo can't assume you have.
+- a **different model** — OpenAI's Codex — whose different training catches model-systematic errors;
+- a **fresh instance of the same model** with a clean context, which, never having seen the session's reasoning, catches anchoring and wrong-problem errors;
+- a **third lineage** — xAI's Grok — on by default, because it needs only its own CLI and a login; when the machine lacks them the panel says so loudly and runs with the rest; and
+- optionally a **fourth** — Moonshot's Kimi via the [`pi`](https://pi.dev) agent — off unless you turn it on, because it needs a binary and a provider key this repo can't assume you have.
 
 The point is not "a smarter reviewer." It's **decorrelation**: checkers whose errors are independent of the author's. The chance all of them miss the same bug is far lower than any one alone. Notably this holds *even if the reviewers are no more capable* than the working agent — independence, not capability, is what buys the catch.
 
@@ -45,7 +46,8 @@ A cheap classifier (Claude Sonnet, low effort) decides the level on every Stop. 
 
 - **Codex** — `gpt-5.6-sol` at `xhigh` effort; a different model lineage.
 - **Fresh Claude** — a clean `claude -p` context, read-only tools (`Read`/`Grep`/`Glob`), no MCP.
-- **Pi** *(optional, `ASSESS_PANEL_PI=1`)* — `moonshotai/kimi-k3` at `high` via OpenRouter; a third lineage. See [the third reviewer](#the-third-reviewer-optional).
+- **Grok** *(on by default; `ASSESS_PANEL_GROK=0` disables)* — `grok-4.6` at `xhigh`, its top tier; a third lineage. See [the Grok reviewer](#the-grok-reviewer-on-by-default).
+- **Pi** *(optional, `ASSESS_PANEL_PI=1`)* — `moonshotai/kimi-k3` at `high` via OpenRouter; a fourth lineage. See [the fourth reviewer](#the-fourth-reviewer-optional).
 
 All are told to **find problems, not to praise**, and to judge independently. None sees the others' output or any prior review, so their errors stay decorrelated. The reviewer prompt is fixed inside the script (it's a guard — not something the orchestrator rewrites per call), and the *task* handed to them is the original request verbatim, never the agent's summary of what it did (a paraphrase would re-anchor them).
 
@@ -57,11 +59,11 @@ Not by majority vote — the working agent and the fresh Claude are the same mod
 - a finding **one reviewer raised and the others missed** → investigate it; cross-lineage disagreement is signal, not a minority to overrule;
 - **all agree it's fine** → high confidence, move on.
 
-With the third reviewer on, a 2-1 split is especially not a vote: the working agent and the fresh Claude agreeing against Codex or Pi is *one* lineage, not two.
+A 2-1 split is especially not a vote: the working agent and the fresh Claude agreeing against Codex, Grok, or Pi is *one* lineage, not two.
 
 ## Scope: the same trick, before the work
 
-`/scope` runs the same two reviewers at the *other* end of a task — on the request,
+`/scope` runs the same reviewers at the *other* end of a task — on the request,
 before anything is built. Decorrelation is worth more here: a misread request at t=0 wastes
 the entire task, while a bug at t=1 wastes a fix.
 
@@ -74,6 +76,11 @@ reviewers are asked what they think is being **asked**, never how to do it:
   out of scope, done condition, most likely failure.
 - **Fresh Claude** answers **assumptions** first, then runs a **pre-mortem** — wrong
   question, already done, tractability, hidden cost, misreading risk.
+- **Grok** answers **assumptions** first, then bounds the request's **extent** — the
+  minimal and the maximal reading of the same words, where a competent worker's default
+  lands between them and in which direction that misses, the stopping rule, and the
+  spillover (adjacent things touched but not named). Distinct from Pi's lens: different
+  *readings* lead to different work, while minimal/maximal bound the same reading's size.
 - **Pi** *(when enabled)* answers **assumptions** first, then enumerates the **competing
   readings** — every reading that would lead to different work, the single question that
   would discriminate between them, how far apart they are, and what evidence favours one.
@@ -81,14 +88,14 @@ reviewers are asked what they think is being **asked**, never how to do it:
 Different lenses on purpose. After the work, a fresh Claude earns its slot by being
 un-anchored from a session that has convinced itself; at t=0 there is no such anchor, so an
 identical prompt would make it a second copy of the working agent's own reading. The same
-argument applies to a third reviewer: asked the same question, it would cost a third call
-for no additional voice.
+argument applies to every added reviewer: asked the same question, each would cost another
+call for no additional voice.
 
-**Assumptions is the load-bearing slot, and the only one both reviewers answer.** When the
-request is clear, everything else agrees; assumptions is where two independent readers reveal
+**Assumptions is the load-bearing slot, and the only one every reviewer answers.** When the
+request is clear, everything else agrees; assumptions is where independent readers reveal
 that it wasn't — so it is the one place a genuine cross-lineage comparison exists, and it is
 shared for exactly that reason. Every other slot is single-source by design, which does not
-make it weak: the other reviewer was never asked, so its silence is not a dissent.
+make it weak: the other reviewers were never asked, so their silence is not a dissent.
 
 Aggregation **inverts**: union, not survival. Nothing is built, so there is no evidence to
 kill a weak finding with, and the costs are lopsided — a false alarm takes one sentence to
@@ -101,20 +108,18 @@ first. Two failure modes that barely exist in coding dominate elsewhere and get 
 slots: **tractability** ("the available data cannot support this claim") and the
 **wrong-question** check ("the answerable version is adjacent to what you asked").
 
-**When to run it.** Always, before **substantial research** — that is where wrong-question
-and tractability findings are most common and most expensive, and where they expire fastest
-once work begins. Otherwise: when a request describes an outcome rather than a change, when
-it is expensive or hard to reverse, or when the agent notices itself filling in a blank the
-user never specified. Skip it when the request already names the files or the exact question
-— there is no ambiguity to find and the panel costs minutes.
+**When it runs: only when you ask.** Scope is triggered by an explicit user invocation
+(`/scope`, or asking in your own words to scope the request) — never by the agent's own
+judgement. It ran on judgement for a while; the trigger description fought the agent's
+default to start working and the runs it bought were too often ones the user would not
+have asked for, so the choice was moved to the person who pays for it. What stays with
+the agent is the timing discipline: scope must run **before** work starts (its two
+signature findings — wrong question, tractability — expire the moment work begins), so
+a scope request arriving mid-task is declined as too late rather than run for show.
 
 Unlike the other levels this is **not** hook-triggered: the Stop hook fires when a turn
-ends, by which point the moment for it has passed. The agent decides to run it, from the
-skill's own description — so nothing extra needs registering, but it is judgement rather
-than a gate, and a description has to win against the strongest default there is, which is
-to start working. That is why the trigger is written the way it is: timing first, the
-obvious rationalization named and refused ("don't skip because it seems clear enough"), and
-an explicit skip list so the boundary is crisp.
+ends, by which point the moment for it has passed. Nothing extra needs registering —
+the skill's own description carries the trigger rule.
 
 **Why a separate skill and not `/assess scope`.** The Stop hook's `is_assess_launch()` keys
 on the literal string "assess" — in the Skill tool's argument, in the harness's launch
@@ -144,11 +149,51 @@ What remains load-bearing is only the skill *name*: the other detectors key on i
 correct rather than fragile, so a future rename must keep "assess" out of it. `skills/scope/panel.sh`
 stays as a symlink — no longer required, just one entry point per skill.
 
-## The third reviewer (optional)
+## The Grok reviewer (on by default)
 
-Codex and a fresh Claude are two lineages. A third — [`pi`](https://pi.dev) driving
+The third lineage — xAI's `grok-4.6` via the [grok CLI](https://x.ai/cli) — is **on by
+default**, because it needs only the CLI itself and a one-time `grok login` (or an
+`XAI_API_KEY`). On a machine without them, every panel prints an explicit `>>> SKIPPED`
+naming the cause and continues; `ASSESS_PANEL_GROK=0` turns the reviewer off where that
+is permanent.
+
+| Variable | Default | |
+|---|---|---|
+| `ASSESS_PANEL_GROK` | *(on)* | `0` turns the reviewer off. An unrecognised value is a loud skip, never a guess. |
+| `ASSESS_GROK_MODEL` | `grok-4.6` | |
+| `ASSESS_GROK_EFFORT` | `xhigh` | grok-4.6's top tier. Unlike pi, the CLI **rejects** a level the model doesn't support instead of clamping, so a bad value is an immediate loud `FAILED`, not a silent downgrade. |
+| `XAI_API_KEY` | — | Optional; without it grok authenticates from `~/.grok/auth.json`. **Only the grok reviewer sees it** — it is stripped from the environment codex and claude inherit, same as every other provider key. |
+
+**Read-only and hermetic, like the others.** It runs with `--sandbox read-only` (an
+OS-level Seatbelt/Landlock guard on the whole process) plus a `--tools
+read_file,grep,list_dir` allowlist that also excludes web search and subagents, and
+against a **throwaway `GROK_HOME`** with `auth.json` symlinked in — so it inherits no
+default model, no permission mode, and writes nothing into your session history. The
+prompt travels via `--prompt-file` with `--verbatim`, so a large diff can't blow the
+argv limit and nothing in the artifact is expanded.
+
+Two things the allowlist does *not* cover, because grok's Claude Code compatibility
+discovers configuration by `$HOME`, which no throwaway home can redirect. First, **MCP**:
+the always-on `search_tool`/`use_tool` meta-tools would expose every server in your
+`~/.claude.json` — verified empirically, including write-capable tools — so the panel
+passes `--disallowed-tools search_tool,use_tool --deny MCPTool`, after which the probed
+tool surface is exactly `read_file`/`grep`/`list_dir`. Second, **skills**: the *names and
+descriptions* of your `~/.claude/skills` (and grok's bundled set) stay visible to the
+reviewer — there is no pi-style `--no-skills` — which is an instruction-surface residual,
+not a data-access one; they are inert unless invoked. And one caveat it shares with
+codex: the CLI appends any repo-level `AGENTS.md`/`CLAUDE.md` to its system prompt and
+offers no off switch (verified empirically — `--system-prompt-override` does not suppress
+it), so a repo's own rules file does reach these two reviewers.
+
+The egress preflight covers it like the others: a grok.com login authenticates against
+`cli-chat-proxy.grok.com`, an API key against `api.x.ai`, and a refused CONNECT tunnel to
+whichever applies becomes an immediate skip naming the host.
+
+## The fourth reviewer (optional)
+
+Codex, a fresh Claude and Grok are three lineages. A fourth — [`pi`](https://pi.dev) driving
 `moonshotai/kimi-k3` over OpenRouter — adds another, in both modes. It is **off by default
-and opt-in**, because unlike the other two it needs a binary, a provider key, and (for a
+and opt-in**, because it needs a binary, a provider key, and (for a
 custom model) a machine-local model definition that this repo cannot assume you have:
 
 ```bash
@@ -157,7 +202,7 @@ ASSESS_PANEL_PI=1 bash skills/assess/panel.sh "$ART" "$TASK"
 
 | Variable | Default | |
 |---|---|---|
-| `ASSESS_PANEL_PI` | *(off)* | `1` turns the third reviewer on. |
+| `ASSESS_PANEL_PI` | *(off)* | `1` turns the fourth reviewer on. |
 | `ASSESS_PI_MODEL` | `moonshotai/kimi-k3` | Must be a model `pi --list-models` reports on this machine. |
 | `ASSESS_PI_PROVIDER` | `openrouter` | |
 | `ASSESS_PI_EFFORT` | `high` | `xhigh` asks for the model's top tier. pi clamps to what the model actually supports (see below). |
@@ -169,7 +214,7 @@ reviewer that quietly doesn't run is worse than one that errors — you'd read t
 and believe three lineages agreed. Before spending a slot, `panel.sh` checks that `pi` is on
 PATH, that a credential is resolvable (environment → key file → a provider entry in pi's own
 `auth.json`), and that the model actually resolves; each failure prints an explicit
-`>>> SKIPPED` naming the cause, and the panel continues with the other two. The model check
+`>>> SKIPPED` naming the cause, and the panel continues with the others. The model check
 matters more than it sounds: pi does *not* fail fast on an unknown id — it warns and then
 dies at the provider with a `401`, which reads like an auth problem.
 
@@ -223,8 +268,8 @@ re-run and pay the same minutes again. **Call `panel.sh` with the sandbox disabl
 Claude Code, a Bash call with `dangerouslyDisableSandbox`), or allowlist the hosts.
 
 `panel.sh` can't fix this from the inside, so it names it. When a proxy is configured, a
-preflight probes each reviewer's endpoint (codex's is chosen by its auth mode, pi's comes from
-the provider's `baseUrl`) and a refused tunnel becomes an immediate `>>> SKIPPED` naming the
+preflight probes each reviewer's endpoint (codex's and grok's are chosen by their auth mode,
+pi's comes from the provider's `baseUrl`) and a refused tunnel becomes an immediate `>>> SKIPPED` naming the
 host and status, instead of minutes of retries. Two rules keep the diagnostic from costing
 more than it saves: it discriminates on the **CONNECT** status, never the HTTP status —
 `chatgpt.com` answers a bare `curl` with `403` through a wide-open tunnel — and only a **4xx**
@@ -236,11 +281,77 @@ network calls at all;
 `ASSESS_PANEL_NET_PROBE=0` disables it outright, `ASSESS_PANEL_NET_TIMEOUT` (default 8s) bounds
 each probe.
 
-And when the panel ends with no *foreign* lineage having produced a review — codex and pi both
-skipped, failed or empty — it says so in a banner rather than printing reconciliation advice
+And when the panel ends with no *foreign* lineage having produced a review — codex, grok and
+pi all skipped, failed or empty — it says so in a banner rather than printing reconciliation advice
 about reviewers that never spoke. A run in which only the fresh Claude answered is the caller's
 own lineage checking its own work; that is a self-check, not a panel, and it has to be reported
 as one.
+
+## Measuring the panel
+
+The panel costs real minutes and tokens per run, so "is it worth it, and which reviewer
+earns its slot?" should not stay anecdotal. The telemetry has two halves, because the two
+questions it answers are knowable in two different places:
+
+**What the run itself can know** — `panel.sh` appends one JSONL record per run to
+`~/.claude/assess-panel/log.jsonl` (override the path with `ASSESS_PANEL_LOG`;
+`ASSESS_PANEL_LOG=off` disables it): the mode, wall time, artifact size, and per reviewer
+the status (`ok` / `empty` / `failed` / `timeout` / `killed` / `skipped` + the reason —
+the same taxonomy the panel prints), its duration, and how many `[HIGH]`/`[MED]`/`[LOW]`
+findings it tagged in review mode. No task or artifact text goes into the record — sizes,
+statuses, model names, and the project root path, but nothing from the prompt or the diff.
+The fields that carry any free text: a skip reason (the panel's own diagnostic — capped at
+300 chars with long token-shaped runs redacted, because one variant quotes a failed
+preflight's output) and, in verdict records, the finding summaries you author (refused
+over 300 chars: name the finding, don't paste the artifact).
+Logging failure is soft: a panel that reviewed the work but could not write its line is a
+success, and says so once on stderr. The write happens after every review has printed, so
+even a *hanging* log destination cannot eat findings already in hand.
+
+**What only the caller can know** — whether a finding was *right*. Reconciliation happens
+in the calling session after the panel exits, so the skill's final step logs it back:
+
+```bash
+python3 ~/.claude/skills/assess/panel_stats.py verdict <run-id>   # findings JSON on stdin
+```
+
+One entry per reconciled finding: `sources` (every voice that independently raised it —
+`codex`, `claude`, `grok`, `pi`, or `self` for the session's own self-review; only voices that
+actually delivered in that run are accepted), the `verdict` (`confirmed` / `refuted` /
+`unverifiable`), and optionally severity and action. Refuted findings matter as much as
+confirmed ones — they are the precision signal — and so do the session's own: a run with
+no `self` entries reads as "the self-review found nothing", which inflates the panel's
+beyond-self numbers if it just wasn't logged. The footer prints the exact command (with
+the log path pinned); `verdict --schema` prints the input shape.
+
+**The answer** — `python3 ~/.claude/skills/assess/panel_stats.py report` joins both halves:
+
+- **Reliability & latency**: per reviewer, how often it actually delivered a review vs
+  skipped/failed/timed out (with the top skip reasons), and its median duration.
+- **Findings volume**: findings per run by severity, as tagged, plus the median delivered
+  output size — so a reviewer whose tags went off-spec is distinguishable from one that
+  found nothing.
+- **Relevance**, split by mode — never pooled, because the two modes' verdicts answer
+  different questions (review: "was it real"; scope: "did it change the reading") and
+  scope hands each reviewer its own lens, making every scope finding single-source by
+  design. Per source — including `self`: findings judged next to findings **tagged** (a
+  reviewer that tags twelve and gets four reconciled would otherwise score on its best
+  four — flooding is the main way a panelist fails to earn its slot), precision over the
+  settled ones (`confirmed / (confirmed + refuted)`; unverifiable ones are excluded, being
+  facts about the artifact's checkability rather than the reviewer's judgement),
+  **unique** confirmed catches (that source alone raised it), **beyond-self** confirmed
+  catches (the session's own review missed it), and **beyond/run** — the same, as a rate
+  over the runs the source delivered a judgement in (an empty "no findings" review counts:
+  it was an opportunity that yielded nothing), so an opt-in reviewer isn't punished for
+  being asked less often. The last two are the panel's whole reason to exist, priced per
+  reviewer.
+
+Caveats the report states itself: verdicts are judged by the same session whose work was
+reviewed, so precision means "survived the caller's checking", not ground truth — fine for
+comparing reviewers against each other, which is the question. Beyond-self is only as
+honest as the caller's `self` logging, so the report prints self-coverage next to it. And
+the severity counts are a volume signal only (a reviewer quoting a tag inflates them); the
+verdicts are the real measure.
 
 ## Keeping the provider key out of your transcripts
 
@@ -270,16 +381,20 @@ environment, where an `env` dump will find it.
 
 - **Claude Code** (`claude` CLI), authenticated.
 - **Codex** (`codex` CLI ≥ 0.144), authenticated. Model and effort are pinned to `gpt-5.6-sol` / `xhigh` (override with `ASSESS_CODEX_MODEL` / `ASSESS_CODEX_EFFORT`).
+- **Grok** (`grok` CLI — `curl -fsSL https://x.ai/cli/install.sh | bash`), authenticated via `grok login` or `XAI_API_KEY`. On by default; without it every panel prints a skip naming the cause (`ASSESS_PANEL_GROK=0` silences that permanently).
 - macOS or Linux (the hook and `panel.sh` are bash + standard tools).
-- *Optional, only for the third reviewer:* **pi** (`npm i -g @mariozechner/pi-coding-agent`), a provider key, and `ripgrep` on PATH (without it the reviewer keeps `read`/`ls` but loses `grep`/`find`, and says so).
+- *Optional, only for the fourth reviewer:* **pi** (`npm i -g @mariozechner/pi-coding-agent`), a provider key, and `ripgrep` on PATH (without it the reviewer keeps `read`/`ls` but loses `grep`/`find`, and says so).
 
 ## Files
 
 - `hooks/stop_assess.py` — the 3-level gate (the Sonnet classifier).
 - `skills/assess/SKILL.md` — the after-work instructions: normal + turbo branches.
 - `skills/scope/SKILL.md` — the before-work instructions. Separate skill (see above for why).
-- `skills/assess/panel.sh` — runs the reviewers in parallel. `--mode review` (default) on a finished artifact; `--mode scope` on a request that hasn't been started.
-- `test/test_panel_pi.py` — pins the third reviewer's gating: off by default, loud when enabled-but-unavailable, and never rendered as agreement when it dies.
+- `skills/assess/panel.sh` — runs the reviewers in parallel. `--mode review` (default) on a finished artifact; `--mode scope` on a request that hasn't been started. Appends one telemetry record per run (see "Measuring the panel").
+- `skills/assess/panel_stats.py` — the other half of the telemetry: `verdict` logs the caller's reconciliation, `report` aggregates per-reviewer reliability and relevance, `runs` lists recent run ids.
+- `test/test_panel_grok.py` — pins the grok reviewer's gating: on by default, loud when unavailable, hermetic and read-only, key isolation, and never rendered as agreement when it dies.
+- `test/test_panel_pi.py` — pins the pi reviewer's gating: off by default, loud when enabled-but-unavailable, and never rendered as agreement when it dies.
+- `test/test_panel_log.py` — pins the telemetry: record correctness per outcome, soft-fail logging, no secrets in the log, and the verdict/report loop.
 - `skills/scope/panel.sh` — a symlink to the script above, not a second copy, so each skill cites its own directory. Deleting it breaks `/scope`.
 - `install.sh` — symlinks the hook + skill into `~/.claude/` (backs up anything already there).
 
@@ -307,7 +422,7 @@ It backs up any existing `~/.claude/hooks/stop_assess.py` and `~/.claude/skills/
 
 - All reviewers run **read-only** — they cannot edit your files.
 - `panel.sh` defaults to `--mode review`, so existing callers are unaffected; `--mode scope` (or `ASSESS_PANEL_MODE=scope`) selects the before-work panel. In scope mode the file argument is the *context* bundle rather than an artifact, and may be empty; the request itself is the second argument and is required.
-- Scope is triggered by the agent's own judgement from the skill description, not by a hook — nothing to register beyond the Stop hook below.
+- Scope runs only on an explicit user invocation (`/scope`), never on the agent's own judgement and never from a hook — nothing to register beyond the Stop hook below.
 - Per-reviewer timeout defaults to 540s (`ASSESS_PANEL_TIMEOUT` to override).
 - The panel reviewers root in the project directory (`$PWD`, or `ASSESS_PANEL_ROOT`) so they can read the surrounding code, not just the artifact text.
 - The hook prompts **at most once per stop-chain**: on any Stop that follows its own block (`stop_hook_active`), it approves — however the agent handled the prompt. This is what makes "assess the assessment" loops structurally impossible.
