@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — symlink the 3-level assess hook + both skills into ~/.claude/.
+# install.sh — symlink the 3-level assess hook + the three skills into ~/.claude/.
 # Backs up anything real that is already there. Nothing in your live setup
 # changes until you run this. Re-running is safe (idempotent).
 set -euo pipefail
@@ -30,10 +30,11 @@ link() { # link <src> <dst>
 
 link "$here/hooks/stop_assess.py" "$CLAUDE/hooks/stop_assess.py"
 link "$here/skills/assess"        "$CLAUDE/skills/assess"
-# Separate skill on purpose, and the name must not contain "assess": the Stop hook's
-# is_assess_launch() keys on that substring, so a scope run under an assess-ish name would
-# spend the cycle's review flag and let the work that follows ship unreviewed.
+# Separate skills on purpose, and their names must not contain "assess": the Stop hook's
+# is_assess_launch() keys on that substring, so a scope or consult run under an assess-ish
+# name would spend the cycle's review flag and let the work that follows ship unreviewed.
 link "$here/skills/scope"         "$CLAUDE/skills/scope"
+link "$here/skills/consult"       "$CLAUDE/skills/consult"
 
 echo
 echo "Done."

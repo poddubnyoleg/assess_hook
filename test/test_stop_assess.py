@@ -81,8 +81,12 @@ class HookTest(unittest.TestCase):
         fakebin = tmp / "bin"
         fakebin.mkdir()
         called = tmp / "classifier_called"
+        # The prompt the classifier received, for tests that assert on the
+        # hook's injected [NOTE: …] hints rather than on the decision alone.
+        self.classifier_prompt = tmp / "classifier_prompt"
         fake = fakebin / "claude"
-        fake.write_text(f'#!/bin/sh\ntouch "{called}"\ncat >/dev/null\necho {level}\nexit {rc}\n')
+        fake.write_text(f'#!/bin/sh\ntouch "{called}"\n'
+                        f'cat >"{self.classifier_prompt}"\necho {level}\nexit {rc}\n')
         fake.chmod(0o755)
 
         env = dict(os.environ, PATH=f"{fakebin}:{os.environ['PATH']}")
@@ -224,6 +228,79 @@ class HookTest(unittest.TestCase):
         decision, called = self.run_hook(records, level="TURBO")
         self.assertEqual(decision["decision"], "block")
         self.assertTrue(called)
+
+    def test_consult_skill_run_does_not_satisfy_the_review_gate(self):
+        # The mid-task `consult` skill reviews nothing — it gathers outside
+        # suggestions so work can CONTINUE — so running it must not count as
+        # "/assess already ran": the work it unblocked would otherwise reach
+        # Stop with the flag spent and ship with no review and no notice.
+        # Same end-to-end proof as the scope test above, against the real file.
+        root = Path(__file__).resolve().parent.parent
+        panel = root / "skills" / "consult" / "panel.sh"
+        self.assertTrue(panel.resolve().is_file(),
+                        f"{panel} must resolve — SKILL.md mandates this path, so a "
+                        f"dangling link leaves no documented way to run /consult")
+        skill = (root / "skills" / "consult" / "SKILL.md").read_text()
+        records = [
+            user("consult the panel about this flaky test"),
+            a_tool("Skill", {"skill": "consult", "args": ""}),
+            tool_result("Launching skill: consult"),
+            meta("Base directory for this skill: /Users/x/.claude/skills/consult\n" + skill),
+            a_text("The panel's first moves converge on the fixture; testing that."),
+            a_tool("Write", {"file_path": "/x/fix.py", "content": "x = 1\n" * 60}),
+            a_text("Fixture was stale; rebuilt it and the test passes. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="TURBO")
+        self.assertEqual(decision["decision"], "block")
+        self.assertIn("turbo", decision["reason"].lower())
+        self.assertTrue(called)
+
+    def test_consult_in_cycle_biases_the_classifier_up_not_down(self):
+        # A consult turn's tail is reconciliation prose plus applied fixes,
+        # which surface-matches the classifier's "reviews work done EARLIER ->
+        # NONE" escape hatch — so the turn where a hard problem finally cracked
+        # would be the one most likely to be classified down, silently. The
+        # hook counters with an injected note; pin that it reaches the
+        # classifier, and only on cycles where a consult actually ran.
+        consult_records = [
+            user("consult the panel about this flaky test"),
+            a_tool("Skill", {"skill": "consult", "args": ""}),
+            tool_result("Launching skill: consult"),
+            a_tool("Write", {"file_path": "/x/fix.py", "content": "x = 1\n" * 60}),
+            a_text("Reconciled the panel's suggestions and applied the fix. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(consult_records, level="NORMAL")
+        self.assertEqual(decision["decision"], "block")
+        self.assertTrue(called)
+        self.assertIn("consult is NOT a review",
+                      self.classifier_prompt.read_text())
+
+        decision, called = self.run_hook(WORK, level="NORMAL")
+        self.assertEqual(decision["decision"], "block")
+        self.assertTrue(called)
+        self.assertNotIn("consult is NOT a review",
+                         self.classifier_prompt.read_text())
+
+    def test_consult_note_needs_edits_in_the_cycle(self):
+        # A consult turn that only ran the panel and reported its menu produced
+        # no artifact. The note claims the turn holds NEW work; injected here it
+        # would push a review-of-nothing toward NORMAL — the exact inverse of
+        # the downgrade it exists to counter. Long prose + a Bash tool call
+        # reach the classifier; the note must not ride along.
+        records = [
+            user("consult the panel about this flaky test"),
+            a_tool("Skill", {"skill": "consult", "args": ""}),
+            tool_result("Launching skill: consult"),
+            a_tool("Bash", {"command": "bash ~/.claude/skills/consult/panel.sh "
+                                       "--mode consult /tmp/ev.txt 'flaky test' > out.log"}),
+            a_text("The panel's menu, reconciled: three first moves converge on "
+                   "the fixture; reporting before touching anything. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="NONE")
+        self.assertEqual(decision["decision"], "approve")
+        self.assertTrue(called)
+        self.assertNotIn("consult is NOT a review",
+                         self.classifier_prompt.read_text())
 
     def test_prompted_cycle_backstop_without_stop_hook_active(self):
         # If the CLI ever stops sending stop_hook_active, the injected prompt

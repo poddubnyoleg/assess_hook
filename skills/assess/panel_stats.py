@@ -65,7 +65,11 @@ Reads on stdin: {"findings": [<finding>, ...], "self_clean": <bool, optional>}
               unverifiable = could not be settled either way.
               For a SCOPE run there is no artifact to check, so:
               confirmed = it changed your reading or went to the
-              user as a question; refuted = noise
+              user as a question; refuted = noise.
+              For a CONSULT run the findings are suggestions, so:
+              confirmed = acted on it and it unblocked the work
+              or changed the approach; refuted = tried it, dead
+              end; unverifiable = untested
   "severity": "HIGH" | "MED" | "LOW"                              optional
   "action":   "fixed" | "deferred" | "dismissed" | "none"         optional
 }
@@ -326,14 +330,18 @@ def cmd_report(args):
             print(fmt_row((name, len(infos), h, m, l,
                            f"{(h + m + l) / len(infos):.1f}", med_kb), widths))
 
-    # Relevance — split by mode, never pooled: the two modes' verdicts answer different
-    # questions (review: "was the finding real"; scope: "did it change the reading"),
-    # and scope hands each reviewer its own lens, so every scope finding is
-    # single-source BY DESIGN — pooled, each would read as a unique catch and the
-    # precision column would average two incommensurable signals.
+    # Relevance — split by mode, never pooled: the modes' verdicts answer different
+    # questions (review: "was the finding real"; scope: "did it change the reading";
+    # consult: "did acting on it unblock"), and scope/consult hand each reviewer its
+    # own lens, so their findings are single-source BY DESIGN — pooled, each would
+    # read as a unique catch and the precision column would average incommensurable
+    # signals. A mode missing from this tuple would be counted in the header and then
+    # silently dropped here — the one silent degradation this report must not have —
+    # so every mode panel.sh accepts needs an entry.
     for mname, conf_means, prec_label in (
             ("review", "checked and real", "precision"),
-            ("scope", "changed the reading / went to the user", "useful")):
+            ("scope", "changed the reading / went to the user", "useful"),
+            ("consult", "acted on and it unblocked or changed the approach", "useful")):
         sub = {i: r for i, r in runs.items() if r.get("mode") == mname}
         if not sub:
             continue
@@ -440,7 +448,7 @@ def cmd_runs(args):
             if "dur_s" in info:
                 part += f"({info['dur_s']}s)"
             revs.append(part)
-        print(f"{rid}  {r.get('mode', '?'):6}  {' '.join(revs)}  "
+        print(f"{rid}  {r.get('mode', '?'):7}  {' '.join(revs)}  "
               f"verdicts:{'yes' if rid in verdicts else 'no'}")
 
 
@@ -455,7 +463,7 @@ def main():
     v.add_argument("--schema", action="store_true", help="print the stdin shape and exit")
     v.set_defaults(fn=cmd_verdict)
     r = sub.add_parser("report", help="aggregate reliability + relevance per reviewer")
-    r.add_argument("--mode", choices=("review", "scope"))
+    r.add_argument("--mode", choices=("review", "scope", "consult"))
     r.set_defaults(fn=cmd_report)
     ls = sub.add_parser("runs", help="list recent runs and their ids")
     ls.add_argument("--last", type=int, default=10)

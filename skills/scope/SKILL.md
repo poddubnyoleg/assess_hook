@@ -54,8 +54,8 @@ shape — and even then, only on request.
    ```
    `--mode scope` must come **before** the artifact path; after it, the flag is task text.
 
-   `panel.sh` here is a symlink to the copy in the sibling review skill — one script, two
-   entry points, so each skill can cite its own directory.
+   `panel.sh` here is a symlink to the copy in the sibling review skill — one script, three
+   entry points (review, scope, consult), so each skill can cite its own directory.
    Codex answers a six-slot interpretation schema; a fresh Claude answers assumptions and
    then runs a pre-mortem; Grok (on by default; `ASSESS_PANEL_GROK=0` disables) bounds the
    request's **extent** — the minimal and maximal readings, where a worker's default lands

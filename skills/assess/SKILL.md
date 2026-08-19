@@ -11,9 +11,10 @@ The Stop hook decides the level and tells you which to run:
 - **Turbo** (`/assess turbo`) — **everything Normal does, PLUS** the cross-model panel.
   Substantial work was done, so a deeper check is warranted.
 
-Both run AFTER the work. The before-work panel is a **separate skill** (`scope`) sharing
-only `panel.sh`: opposite timing, opposite aggregation, and it reviews nothing — so running
-it does not satisfy the Stop hook, and this skill still applies when the work is done.
+Both run AFTER the work. The panel's other two moments are **separate skills** sharing
+only `panel.sh` — `scope` (before the work, on the request) and `consult` (during it, on
+an impasse). Neither reviews anything — running them does not satisfy the Stop hook, and
+this skill still applies when the work is done.
 
 ## Turbo: cross-model panel
 

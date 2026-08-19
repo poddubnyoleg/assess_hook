@@ -1,6 +1,6 @@
 # assess-panel
 
-**A review step for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that brings in a *different* AI model and a *fresh, un-primed* instance to catch the mistakes the working agent can't see by itself — after substantial work (did it do this right?) or, on demand, before it starts (does it even know what you asked?).**
+**A review step for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that brings in a *different* AI model and a *fresh, un-primed* instance to catch the mistakes the working agent can't see by itself — after substantial work (did it do this right?), on demand before it starts (does it even know what you asked?), or, on demand, mid-task when it is stuck (what would someone else try?).**
 
 ## The problem
 
@@ -24,11 +24,12 @@ Independent review costs tokens and time, so it's **gated**: a cheap classifier 
 
 ## What it is
 
-Three pieces that plug into Claude Code:
+Four pieces that plug into Claude Code:
 
 - **An `/assess` skill** — a structured self-review (for code: correctness, edge cases, security, consistency; for research: sourcing and internal consistency; for plans: simplicity and completeness). You can run it by hand (`/assess`), or let the hook trigger it.
 - **A Stop hook** — a script Claude Code runs every time the agent finishes a turn. It can block the turn and tell the agent to do something first. Here it classifies the turn into one of three review levels.
 - **A `/scope` skill** — the same panel run on the *request*, before work starts. Deliberately a separate skill rather than a mode of `/assess`; [see below](#scope-the-same-trick-before-the-work) for why the split is load-bearing.
+- **A `/consult` skill** — the same reviewers run on an *impasse* mid-task, or on an open problem the user wants outside ideas on: a menu of ways forward, for code, data analysis, research, or ideation alike. Also a separate skill, for the same naming reason; [see below](#consult-the-same-reviewers-mid-task).
 
 ![How assess-panel works](docs/how-it-works.svg)
 
@@ -148,6 +149,111 @@ ordinary prose about assess is just prose. Tests pin both, and fail against the 
 What remains load-bearing is only the skill *name*: the other detectors key on it, which is
 correct rather than fragile, so a future rename must keep "assess" out of it. `skills/scope/panel.sh`
 stays as a symlink — no longer required, just one entry point per skill.
+
+## Consult: the same reviewers, mid-task
+
+Review runs after the work, scope before it. `/consult` is the third moment — **during**,
+when the session has hit an impasse: a failing check that has survived several attempted
+fixes, an analysis whose numbers will not reconcile, a dead end — or when the user wants
+the panel's ideas on an open problem, with nothing failed yet. Like scope, it is
+**domain-neutral by construction**: code is one case, not the definition — data
+analysis, research, writing, a decision, open-ended ideation — and nothing has to
+classify the task first. The argument for spending the panel here is the strongest of
+the three: review and scope hedge against the *possibility* of a blind spot, while an
+impasse is a *demonstrated* one — the working model's priors have visibly failed on this
+specific problem, which is exactly when a foreign lineage's priors are worth the most
+per call. The counterfactual is looping (often more tokens than the panel costs), or a
+wrong guess baked into everything downstream until turbo catches it and forces a redo.
+
+The question inverts a third way. Review asks "is this wrong?" (judicial, survival);
+scope asks "what is being asked?" (interpretive, union); consult asks "what would you
+try?" — **generative**. That flips the aggregation into the easiest of the three: the
+output is a **menu**. There is a live problem to test suggestions against, divergent
+suggestions are breadth rather than disagreement, and the run succeeds if any one
+unblocks. One reconciliation rule is binding: **run at least one proposed probe before
+the next speculative fix** — a stuck frame that reads the menu, nods, and resumes its
+own loop has spent the panel on nothing.
+
+Lenses are distinct, like scope's and for the same reason — "what would you try?" asked
+identically over the same repo yields the same obvious candidates the session already
+burned, so the panel would pay three calls for one list:
+
+- **Codex** — **experiment cards**: 2–4 mutually distinct hypotheses, each with a
+  disconfirmer, the cheapest probe that separates it from the others (a command, a
+  query, a calculation, a source to check), and the result it predicts either way — so
+  an outcome cannot be reinterpreted after the fact. Ranked by information per cost,
+  not confidence.
+- **Fresh Claude** — the **shared assumption**: treat the failed *attempts*, not the
+  problem, as the object of study; infer the assumption they all share that the request
+  does not require, and attack it. The one question the working model cannot ask itself
+  — it is inside the frame — and therefore the slot where a clean context earns the
+  most. An assumption must quote the attempts that embody it, or be labelled a guess.
+  On an open problem with no attempts, the lens shifts to the **framing**: the
+  assumption embedded in how the question is posed that most constrains the answers.
+- **Grok** — **lateral moves**: the space outside the current approach — a different
+  layer, tool, decomposition, data cut or source, an adjacent field's standard method,
+  or the minimal-repro/bisection route that sidesteps theorizing entirely — grounded in
+  what the working directory actually contains.
+- **Pi** *(when on)* — the **mundane causes**: stale state or a stale data snapshot,
+  the wrong file/branch/env/dataset actually being exercised, a fix or filter that
+  never took effect, a check or metric asserting something other than it appears to, a
+  join silently duplicating rows, units and timezones — each with the one-line
+  observation that settles it.
+
+All four end with **FIRST MOVE** — the single cheapest next action. It is consult's
+counterpart of scope's shared assumptions slot: the one place a cross-lineage
+comparison exists, and convergence there is the strongest signal the run produces.
+(It comes *last* where scope's shared slot comes first: an assumption is a reading,
+answered before the lens can colour it; a first move is a conclusion, worthless
+un-grounded.)
+
+**The evidence file is the load-bearing input, and it has rules.** Review's verbatim
+referent is the artifact and scope's is the user's words; consult has no un-authored
+source — the stuck session writes the packet, and its *selection* is itself a theory
+(it pastes the traceback it suspects and omits the config it never did). The skill
+leans against that, per shape: a failing check is re-run fresh with raw output captured,
+never from memory or scrollback (and if it passes on the re-run, that is the report);
+an analysis that won't reconcile gets its queries re-executed and their actual output
+included, both sides of the contradiction, metric definitions and all; attempts go in
+as facts — each change and its observed result, abandoned ones included; over-include
+what was never suspected (config, environment, versions, the check's or metric's own
+definition), so a consultant *can* disagree about where the problem lives; and exclude
+the diagnosis entirely — the theory is the thing that has failed. The one exception is
+the **ideation shape**: nothing failed there, so the current state of thinking goes in
+*labelled as the state to build beyond* — context, not contamination. Secrets never go
+in at all (the packet travels verbatim to three providers): no env dumps, no credential
+files, values named and redacted.
+
+**When it runs: only when you ask, mid-task — v1 by design.** Same trigger discipline
+as scope, inherited from the same history. This mode was itself designed with a panel
+run (an ideation panel over the feature proposal), and that panel converged on a v2
+worth recording here: a `PostToolUse` hook that fingerprints repeated same-failure
+attempts and compiles the packet mechanically from the transcript, so neither the
+trigger nor the evidence is authored by the model whose frame failed — the mirror of
+`stop_hook_active`'s structural-not-hortatory move. v1 keeps both with the user,
+gathers telemetry on how manual runs actually go, and stays honest that the trigger
+question is unsettled: scope's judgment era over-fired, but consult fights
+default-to-persist rather than default-to-act, and which failure mode wins is exactly
+what the run counts will show. A consult also runs **at most once per stuck episode**
+— when the menu is exhausted, the escalation is to the user with the evidence, not
+another panel over the same facts.
+
+**It reviews nothing, on purpose — and the hook knows it.** The skill name keeps
+"assess" out of the Stop hook's detectors, so the after-work review still fires on
+whatever ships (same rule as scope). One addition landed with this mode: consult
+reconciliation prose ("the panel proposed…, I tested…, applied the fix") surface-matches
+the classifier's "reviews work done earlier → NONE" escape hatch, so the turn where a
+hard bug finally cracked — the turn most deserving turbo — was the one most likely to
+be classified down, silently. The hook now detects a consult in the cycle (structurally,
+the same four channels as the assess detector) and tells its classifier that the work
+after a consult is *new, unreviewed* work.
+
+**Telemetry** shares the machinery: runs log as `mode: consult` (no severity counts —
+consult output carries no tags, and zeros would read as "reviewed and found nothing"),
+and the verdicts you log back answer the mode's own question, "did acting on it
+unblock": `confirmed` = acted on it and it unblocked the work or changed the approach,
+`refuted` = tried, dead end, `unverifiable` = untested. The report keeps consult
+separate from the other modes, as it already keeps review and scope apart.
 
 ## The Grok reviewer (on by default)
 
@@ -331,10 +437,10 @@ the log path pinned); `verdict --schema` prints the input shape.
 - **Findings volume**: findings per run by severity, as tagged, plus the median delivered
   output size — so a reviewer whose tags went off-spec is distinguishable from one that
   found nothing.
-- **Relevance**, split by mode — never pooled, because the two modes' verdicts answer
-  different questions (review: "was it real"; scope: "did it change the reading") and
-  scope hands each reviewer its own lens, making every scope finding single-source by
-  design. Per source — including `self`: findings judged next to findings **tagged** (a
+- **Relevance**, split by mode — never pooled, because the modes' verdicts answer
+  different questions (review: "was it real"; scope: "did it change the reading";
+  consult: "did acting on it unblock") and scope and consult hand each reviewer its own
+  lens, making their findings single-source by design. Per source — including `self`: findings judged next to findings **tagged** (a
   reviewer that tags twelve and gets four reconciled would otherwise score on its best
   four — flooding is the main way a panelist fails to earn its slot), precision over the
   settled ones (`confirmed / (confirmed + refuted)`; unverifiable ones are excluded, being
@@ -390,12 +496,14 @@ environment, where an `env` dump will find it.
 - `hooks/stop_assess.py` — the 3-level gate (the Sonnet classifier).
 - `skills/assess/SKILL.md` — the after-work instructions: normal + turbo branches.
 - `skills/scope/SKILL.md` — the before-work instructions. Separate skill (see above for why).
-- `skills/assess/panel.sh` — runs the reviewers in parallel. `--mode review` (default) on a finished artifact; `--mode scope` on a request that hasn't been started. Appends one telemetry record per run (see "Measuring the panel").
+- `skills/consult/SKILL.md` — the mid-task instructions: the evidence-packet rules and the menu reconciliation. Separate skill, same naming rule as scope.
+- `skills/assess/panel.sh` — runs the reviewers in parallel. `--mode review` (default) on a finished artifact; `--mode scope` on a request that hasn't been started; `--mode consult` on a stuck state mid-task. Appends one telemetry record per run (see "Measuring the panel").
 - `skills/assess/panel_stats.py` — the other half of the telemetry: `verdict` logs the caller's reconciliation, `report` aggregates per-reviewer reliability and relevance, `runs` lists recent run ids.
 - `test/test_panel_grok.py` — pins the grok reviewer's gating: on by default, loud when unavailable, hermetic and read-only, key isolation, and never rendered as agreement when it dies.
 - `test/test_panel_pi.py` — pins the pi reviewer's gating: off by default, loud when enabled-but-unavailable, and never rendered as agreement when it dies.
 - `test/test_panel_log.py` — pins the telemetry: record correctness per outcome, soft-fail logging, no secrets in the log, and the verdict/report loop.
-- `skills/scope/panel.sh` — a symlink to the script above, not a second copy, so each skill cites its own directory. Deleting it breaks `/scope`.
+- `test/test_panel_consult.py` — pins the consult mode: the problem statement is required, the lenses stay distinct while FIRST MOVE stays shared, the footer reconciles as a menu, and telemetry records the mode without severity counts.
+- `skills/scope/panel.sh`, `skills/consult/panel.sh` — symlinks to the script above, not copies, so each skill cites its own directory. Deleting one breaks its skill.
 - `install.sh` — symlinks the hook + skill into `~/.claude/` (backs up anything already there).
 
 ## Install
@@ -406,7 +514,7 @@ Review the files, then:
 bash install.sh
 ```
 
-It backs up any existing `~/.claude/hooks/stop_assess.py` and `~/.claude/skills/assess` into `~/.claude/backups/` (outside the skills dir, so backups don't show up as live skills), then symlinks this repo in their place (so edits here go live immediately). You must also register the Stop hook once in `~/.claude/settings.json`:
+It backs up any existing `~/.claude/hooks/stop_assess.py` and `~/.claude/skills/{assess,scope,consult}` into `~/.claude/backups/` (outside the skills dir, so backups don't show up as live skills), then symlinks this repo in their place (so edits here go live immediately). You must also register the Stop hook once in `~/.claude/settings.json`:
 
 ```json
 {
@@ -421,8 +529,8 @@ It backs up any existing `~/.claude/hooks/stop_assess.py` and `~/.claude/skills/
 ## Notes
 
 - All reviewers run **read-only** — they cannot edit your files.
-- `panel.sh` defaults to `--mode review`, so existing callers are unaffected; `--mode scope` (or `ASSESS_PANEL_MODE=scope`) selects the before-work panel. In scope mode the file argument is the *context* bundle rather than an artifact, and may be empty; the request itself is the second argument and is required.
-- Scope runs only on an explicit user invocation (`/scope`), never on the agent's own judgement and never from a hook — nothing to register beyond the Stop hook below.
+- `panel.sh` defaults to `--mode review`, so existing callers are unaffected; `--mode scope` (or `ASSESS_PANEL_MODE=scope`) selects the before-work panel, `--mode consult` the mid-task one. In scope mode the file argument is the *context* bundle rather than an artifact, and may be empty; in consult mode it is the *evidence* bundle (empty is accepted but weakens every lens). In both, the request/problem is the second argument and is required.
+- Scope and consult run only on an explicit user invocation (`/scope`, `/consult`), never on the agent's own judgement and never from a hook — nothing to register beyond the Stop hook below.
 - Per-reviewer timeout defaults to 540s (`ASSESS_PANEL_TIMEOUT` to override).
 - The panel reviewers root in the project directory (`$PWD`, or `ASSESS_PANEL_ROOT`) so they can read the surrounding code, not just the artifact text.
 - The hook prompts **at most once per stop-chain**: on any Stop that follows its own block (`stop_hook_active`), it approves — however the agent handled the prompt. This is what makes "assess the assessment" loops structurally impossible.
