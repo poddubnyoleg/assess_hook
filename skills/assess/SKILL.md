@@ -1,6 +1,6 @@
 ---
 name: assess
-description: Critically double-check your work — code, research, or plans — AFTER doing it. Usually triggered by the Stop hook when a turn ends; `/assess turbo` adds a cross-model panel on top of the self-review. The mirror of this, run BEFORE work starts on the request rather than the result, is the separate `scope` skill.
+description: Critically double-check your work — code, research, or plans — AFTER doing it. Usually triggered by the Stop hook when a turn ends; `/assess turbo` adds a cross-model panel on top of the self-review. The mirror of this, run on demand before the work starts or mid-task rather than on the result, is the separate `panel` skill.
 ---
 
 ## Levels
@@ -11,10 +11,10 @@ The Stop hook decides the level and tells you which to run:
 - **Turbo** (`/assess turbo`) — **everything Normal does, PLUS** the cross-model panel.
   Substantial work was done, so a deeper check is warranted.
 
-Both run AFTER the work. The panel's other two moments are **separate skills** sharing
-only `panel.sh` — `scope` (before the work, on the request) and `consult` (during it, on
-an impasse). Neither reviews anything — running them does not satisfy the Stop hook, and
-this skill still applies when the work is done.
+Both run AFTER the work. The panel's other two moments live in the **separate `panel`
+skill**, which shares only `panel.sh` — before the work it runs on the request, during it
+on an impasse, and the user invokes it explicitly. It reviews nothing, so running it does
+not satisfy the Stop hook, and this skill still applies when the work is done.
 
 ## Turbo: cross-model panel
 

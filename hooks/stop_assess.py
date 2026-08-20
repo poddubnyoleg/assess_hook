@@ -42,12 +42,13 @@ Design:
   boundary, or the launches they answer leave the "recent" slice and
   this detection goes blind mid-flight.
 - A cheap Sonnet call (low effort, no tools) classifies the level
-- A mid-task `consult` skill run this cycle -> a classifier hint, never a
-  gate, and only when the cycle also EDITED files: consult reconciliation
-  prose surface-matches the "reviews earlier work -> NONE" escape hatch, so
-  without the hint the turn where a hard problem finally cracked is the one
-  most likely to be classified down — while a consult turn with no edits
-  produced no artifact, and the hint would push it toward a review of nothing
+- A `panel` skill run this cycle -> a classifier hint, never a gate, and only
+  when the cycle also EDITED files: panel reconciliation prose surface-matches
+  the "reviews earlier work -> NONE" escape hatch, so without the hint the turn
+  where a hard problem finally cracked is the one most likely to be classified
+  down — while a panel turn with no edits produced no artifact (the before-work
+  panel typically ends by asking the user), and the hint would push it toward a
+  review of nothing
 - Classifier unavailable -> approve (fail-open, with a stderr note): a missed
   review costs less than a broken classifier blocking every Stop
 - Conservative defaults: unsure NONE/NORMAL -> NONE; unsure NORMAL/TURBO -> NORMAL
@@ -128,9 +129,9 @@ def is_skill_launch(r, name):
         text = _text_of(content).lower()
         # The injected skill body (an isMeta turn) — how a user-typed slash
         # command shows up inside the cycle. Anchored to the header LINE that
-        # names the skill, not scanned over the whole body: the sibling `scope`
-        # and `consult` skills review nothing, and their instructions naturally
-        # cite the panel.sh all three share. Under a body-wide scan, merely
+        # names the skill, not scanned over the whole body: the sibling `panel`
+        # skill reviews nothing, and its instructions naturally cite the
+        # panel.sh both skills share. Under a body-wide scan, merely
         # LOADING such a skill counted as a completed review, so the work that
         # followed reached Stop with the flag spent and shipped reviewed by nobody.
         if r.get("isMeta") is True and re.search(
@@ -151,7 +152,7 @@ def analyze_transcript(path):
     """Parse transcript tail.
 
     Returns (ok, has_edits, any_tools, has_assess, prior_assess, prompted,
-    pending_bg, has_consult, recent_text):
+    pending_bg, has_panel, recent_text):
     - ok           whether the transcript was readable and non-empty
     - has_edits    file Edit/Write tools ran after the last real user message
     - any_tools    ANY tool ran after the last real user message
@@ -160,8 +161,8 @@ def analyze_transcript(path):
     - prompted     OUR "Run /assess" block reason already sits in this cycle
     - pending_bg   background tasks launched this cycle with no completion
                    notification yet — the turn ended as a handoff, not done
-    - has_consult  the mid-task `consult` skill ran this cycle (classifier
-                   hint only — a consult reviews nothing and must not gate)
+    - has_panel    the on-demand `panel` skill ran this cycle (classifier
+                   hint only — a panel run reviews nothing and must not gate)
     - recent_text  assistant text + edit summaries since then, chronological
     """
     empty = (False, False, False, False, False, False, False, False, "")
@@ -227,13 +228,13 @@ def analyze_transcript(path):
     # Classifier hint only: an assess earlier in the session means the bulk of
     # `git diff HEAD` may already be reviewed and only newer work matters.
     prior_assess = any(is_assess_launch(r) for r in prior)
-    # Classifier hint only, the other direction: a mid-task consult's
+    # Classifier hint only, the other direction: an on-demand panel run's
     # reconciliation prose ("the panel proposed…, I tested…, reconciling…")
     # surface-matches the classifier's "reviews work done EARLIER -> NONE"
     # escape hatch, so the turn where a hard problem finally cracked — the one
     # most deserving review — is the one most likely to be classified down.
     # Detected structurally, same channels as the assess run above; never gates.
-    has_consult = any(is_skill_launch(r, "consult") for r in recent)
+    has_panel = any(is_skill_launch(r, "panel") for r in recent)
 
     # Our own injected block reason ("Run /assess ...") comes back as an isMeta
     # user turn. Its presence in THIS cycle's slice means we already prompted.
@@ -387,7 +388,7 @@ def analyze_transcript(path):
 
     recent_text = "\n\n".join(parts).strip()
     return (True, has_edits, any_tools, has_assess, prior_assess, prompted,
-            pending_bg, has_consult, recent_text)
+            pending_bg, has_panel, recent_text)
 
 
 def classify_with_llm(msg, tool_context):
@@ -489,7 +490,7 @@ if transcript_path:
 
 # 1. Analyze transcript since last user message
 (ok, has_tools, any_tools, has_assess, prior_assess, prompted, pending_bg,
- has_consult, recent_text) = analyze_transcript(transcript_path)
+ has_panel, recent_text) = analyze_transcript(transcript_path)
 
 # Prefer the full recent assistant message queue over just the last message
 classify_msg = recent_text or msg
@@ -540,15 +541,19 @@ if has_tools:
 if prior_assess:
     tool_context += ("\n[NOTE: An /assess review already ran earlier in this session; "
                      "only work NEWER than that review warrants another one.]")
-# Gated on edits: a consult turn that only ran the panel and reported its menu
+# Gated on edits: a panel turn that only ran the reviewers and reported back
 # produced no artifact, and a categorical "this is NEW work" would push exactly
 # that turn toward a review of nothing. With edits present, the note counters
 # the opposite failure — reconciliation prose reading as "reviews earlier work".
-if has_consult and has_tools:
-    tool_context += ("\n[NOTE: A mid-task consult panel (the `consult` skill) ran this "
-                     "turn. A consult is NOT a review — it gathered outside suggestions "
-                     "so the work could continue, and the file edits in this turn are "
-                     "NEW work that has not been reviewed, not a recap of earlier work.]")
+if has_panel and has_tools:
+    tool_context += ("\n[NOTE: The on-demand cross-model panel (the `panel` skill) ran "
+                     "this turn. A panel run is NOT a review — it read the request or "
+                     "gathered outside suggestions so the work could start or continue, "
+                     "so any file edits in this turn are NEW work that has not been "
+                     "reviewed, not a recap of earlier work. Exception: a scratch context "
+                     "or evidence file written for the panel itself (typically under "
+                     "/tmp or a scratchpad) is not work — if that is all this turn "
+                     "changed, judge it as a turn that produced nothing.]")
 # Keep head + tail when long: early [Write]/[Edit] summaries (the substantial-artifact
 # signal) sit at the head and would be lost by a tail-only cut, biasing toward NORMAL.
 if len(classify_msg) > 8000:

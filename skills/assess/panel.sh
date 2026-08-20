@@ -26,7 +26,7 @@
 #   artifact, so findings are checkable against evidence. Aggregate by SURVIVAL: a
 #   finding that doesn't hold up dies.
 #
-# --mode scope (the separate `/scope` skill, BEFORE the work)
+# --mode scope (the separate `/panel` skill, BEFORE the work)
 #   There is no artifact yet, so there is nothing to refute — asking two models "how
 #   should this be done" just yields two plausible plans and no way to choose. Instead
 #   every reviewer is asked what it thinks is being ASKED, and each is given a
@@ -44,7 +44,7 @@
 #   ASSUMPTIONS are the output — surface them as an explicit choice, don't pick one.
 #   Domain-neutral by construction: code, research, analysis, writing, a decision.
 #
-# --mode consult (the separate `/consult` skill, DURING the work, on explicit request)
+# --mode consult (the same `/panel` skill, DURING the work — both on explicit request)
 #   The session has hit an IMPASSE mid-task — a failing check that survived several
 #   attempted fixes, an analysis that will not reconcile, a dead end — or the user
 #   asked for outside ideas on an open problem. Domain-neutral like scope: code,

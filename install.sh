@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — symlink the 3-level assess hook + the three skills into ~/.claude/.
+# install.sh — symlink the 3-level assess hook + the two skills into ~/.claude/.
 # Backs up anything real that is already there. Nothing in your live setup
 # changes until you run this. Re-running is safe (idempotent).
 set -euo pipefail
@@ -30,11 +30,35 @@ link() { # link <src> <dst>
 
 link "$here/hooks/stop_assess.py" "$CLAUDE/hooks/stop_assess.py"
 link "$here/skills/assess"        "$CLAUDE/skills/assess"
-# Separate skills on purpose, and their names must not contain "assess": the Stop hook's
-# is_assess_launch() keys on that substring, so a scope or consult run under an assess-ish
+# A separate skill on purpose, and its name must not contain "assess": the Stop hook's
+# is_assess_launch() keys on that substring, so an on-demand panel run under an assess-ish
 # name would spend the cycle's review flag and let the work that follows ship unreviewed.
-link "$here/skills/scope"         "$CLAUDE/skills/scope"
-link "$here/skills/consult"       "$CLAUDE/skills/consult"
+link "$here/skills/panel"         "$CLAUDE/skills/panel"
+
+# `panel` folded in the former `scope` and `consult` skills. Drop their links, or the
+# retired names keep showing up as live skills and each one points at a directory that no
+# longer exists. Only links into THIS repo are removed; anything else of yours is left.
+for old in scope consult; do
+  d="$CLAUDE/skills/$old"
+  if [ -L "$d" ]; then
+    tgt="$(readlink "$d")"
+    case "$tgt" in
+      "$here"/*) rm "$d"; echo "removed:  $d (folded into panel)" ;;
+      *)
+        # A link made from a different clone path (repo moved, second checkout) fails the
+        # match above, but its target went away with the rename too — a dangling skill
+        # either way. Only a link that still resolves is someone else's and stays.
+        if [ ! -e "$d" ]; then
+          rm "$d"; echo "removed:  $d (dangling link to a retired skill)"
+        else
+          echo "kept:     $d -> $tgt (still resolves, not ours)"
+        fi ;;
+    esac
+  elif [ -d "$d" ]; then
+    echo "WARNING:  $d is a real directory, not a link. The panel skill replaces it, and"
+    echo "          Claude Code will keep listing it as a live skill until you remove it."
+  fi
+done
 
 echo
 echo "Done."

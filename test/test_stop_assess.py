@@ -165,8 +165,8 @@ class HookTest(unittest.TestCase):
         self.assertEqual(decision["decision"], "approve")
         self.assertFalse(called)
 
-    def test_scope_skill_run_does_not_satisfy_the_review_gate(self):
-        # The before-work `scope` skill reviews nothing, so running it must NOT count
+    def test_panel_skill_run_does_not_satisfy_the_review_gate(self):
+        # The on-demand `panel` skill reviews nothing, so running it must NOT count
         # as "/assess already ran" — otherwise work done afterwards reaches Stop with
         # the flag spent and ships with no review and no notice.
         #
@@ -176,16 +176,16 @@ class HookTest(unittest.TestCase):
         # now — see the two tests below — but this is the end-to-end proof for the
         # actual file that ships, whatever it grows to say.
         root = Path(__file__).resolve().parent.parent
-        panel = root / "skills" / "scope" / "panel.sh"
+        panel = root / "skills" / "panel" / "panel.sh"
         self.assertTrue(panel.resolve().is_file(),
                         f"{panel} must resolve — SKILL.md mandates this path, so a "
-                        f"dangling link leaves no documented way to run /scope")
-        skill = (root / "skills" / "scope" / "SKILL.md").read_text()
+                        f"dangling link leaves no documented way to run /panel")
+        skill = (root / "skills" / "panel" / "SKILL.md").read_text()
         records = [
             user("research whether we can add a third reviewer"),
-            a_tool("Skill", {"skill": "scope", "args": ""}),
-            tool_result("Launching skill: scope"),
-            meta("Base directory for this skill: /Users/x/.claude/skills/scope\n" + skill),
+            a_tool("Skill", {"skill": "panel", "args": ""}),
+            tool_result("Launching skill: panel"),
+            meta("Base directory for this skill: /Users/x/.claude/skills/panel\n" + skill),
             a_text("Readings converged; assumptions agreed. Building it."),
             a_tool("Write", {"file_path": "/x/third.py", "content": "x = 1\n" * 60}),
             a_text("Added the third reviewer. " + LONG_PROSE),
@@ -195,11 +195,11 @@ class HookTest(unittest.TestCase):
         self.assertIn("turbo", decision["reason"].lower())
         self.assertTrue(called)
 
-    def _scope_run_then_work(self, body):
+    def _panel_run_then_work(self, body):
         return [
             user("research whether we can add a third reviewer"),
-            a_tool("Skill", {"skill": "scope", "args": ""}),
-            tool_result("Launching skill: scope"),
+            a_tool("Skill", {"skill": "panel", "args": ""}),
+            tool_result("Launching skill: panel"),
             meta(body),
             a_tool("Write", {"file_path": "/x/third.py", "content": "x = 1\n" * 60}),
             a_text("Added the third reviewer. " + LONG_PROSE),
@@ -209,9 +209,9 @@ class HookTest(unittest.TestCase):
         # is_assess_launch used to scan the WHOLE injected body, so any skill whose
         # instructions mentioned a path under skills/assess read as a completed review.
         # The header line names the skill; the body doesn't. This exact shape — the
-        # scope skill documenting the panel.sh both skills share — disarmed the gate.
-        records = self._scope_run_then_work(
-            "Base directory for this skill: /Users/x/.claude/skills/scope\n"
+        # panel skill documenting the panel.sh both skills share — disarmed the gate.
+        records = self._panel_run_then_work(
+            "Base directory for this skill: /Users/x/.claude/skills/panel\n"
             "Run the shared panel: ~/.claude/skills/assess/panel.sh --mode scope\n")
         decision, called = self.run_hook(records, level="TURBO")
         self.assertEqual(decision["decision"], "block")
@@ -222,30 +222,29 @@ class HookTest(unittest.TestCase):
         # isMeta turn, so a skill body explaining what the hook will later ask for read
         # as "already prompted this cycle" and approved the turn. Our own reasons say
         # "Run /assess ... before finishing"; prose describing them does not.
-        records = self._scope_run_then_work(
-            "Base directory for this skill: /Users/x/.claude/skills/scope\n"
+        records = self._panel_run_then_work(
+            "Base directory for this skill: /Users/x/.claude/skills/panel\n"
             "When the work is done the Stop hook will tell you to run /assess turbo.\n")
         decision, called = self.run_hook(records, level="TURBO")
         self.assertEqual(decision["decision"], "block")
         self.assertTrue(called)
 
-    def test_consult_skill_run_does_not_satisfy_the_review_gate(self):
-        # The mid-task `consult` skill reviews nothing — it gathers outside
-        # suggestions so work can CONTINUE — so running it must not count as
-        # "/assess already ran": the work it unblocked would otherwise reach
-        # Stop with the flag spent and ship with no review and no notice.
-        # Same end-to-end proof as the scope test above, against the real file.
+    def test_midtask_panel_run_does_not_satisfy_the_review_gate(self):
+        # Same skill, its other moment: a mid-task panel run gathers outside
+        # suggestions so work can CONTINUE, reviews nothing, and so must not
+        # count as "/assess already ran" — the work it unblocked would otherwise
+        # reach Stop with the flag spent and ship with no review and no notice.
         root = Path(__file__).resolve().parent.parent
-        panel = root / "skills" / "consult" / "panel.sh"
+        panel = root / "skills" / "panel" / "panel.sh"
         self.assertTrue(panel.resolve().is_file(),
                         f"{panel} must resolve — SKILL.md mandates this path, so a "
-                        f"dangling link leaves no documented way to run /consult")
-        skill = (root / "skills" / "consult" / "SKILL.md").read_text()
+                        f"dangling link leaves no documented way to run /panel")
+        skill = (root / "skills" / "panel" / "SKILL.md").read_text()
         records = [
-            user("consult the panel about this flaky test"),
-            a_tool("Skill", {"skill": "consult", "args": ""}),
-            tool_result("Launching skill: consult"),
-            meta("Base directory for this skill: /Users/x/.claude/skills/consult\n" + skill),
+            user("ask the panel about this flaky test"),
+            a_tool("Skill", {"skill": "panel", "args": ""}),
+            tool_result("Launching skill: panel"),
+            meta("Base directory for this skill: /Users/x/.claude/skills/panel\n" + skill),
             a_text("The panel's first moves converge on the fixture; testing that."),
             a_tool("Write", {"file_path": "/x/fix.py", "content": "x = 1\n" * 60}),
             a_text("Fixture was stale; rebuilt it and the test passes. " + LONG_PROSE),
@@ -255,43 +254,43 @@ class HookTest(unittest.TestCase):
         self.assertIn("turbo", decision["reason"].lower())
         self.assertTrue(called)
 
-    def test_consult_in_cycle_biases_the_classifier_up_not_down(self):
-        # A consult turn's tail is reconciliation prose plus applied fixes,
+    def test_panel_in_cycle_biases_the_classifier_up_not_down(self):
+        # A panel turn's tail is reconciliation prose plus applied fixes,
         # which surface-matches the classifier's "reviews work done EARLIER ->
         # NONE" escape hatch — so the turn where a hard problem finally cracked
         # would be the one most likely to be classified down, silently. The
         # hook counters with an injected note; pin that it reaches the
-        # classifier, and only on cycles where a consult actually ran.
-        consult_records = [
-            user("consult the panel about this flaky test"),
-            a_tool("Skill", {"skill": "consult", "args": ""}),
-            tool_result("Launching skill: consult"),
+        # classifier, and only on cycles where a panel run actually happened.
+        panel_records = [
+            user("ask the panel about this flaky test"),
+            a_tool("Skill", {"skill": "panel", "args": ""}),
+            tool_result("Launching skill: panel"),
             a_tool("Write", {"file_path": "/x/fix.py", "content": "x = 1\n" * 60}),
             a_text("Reconciled the panel's suggestions and applied the fix. " + LONG_PROSE),
         ]
-        decision, called = self.run_hook(consult_records, level="NORMAL")
+        decision, called = self.run_hook(panel_records, level="NORMAL")
         self.assertEqual(decision["decision"], "block")
         self.assertTrue(called)
-        self.assertIn("consult is NOT a review",
+        self.assertIn("panel run is NOT a review",
                       self.classifier_prompt.read_text())
 
         decision, called = self.run_hook(WORK, level="NORMAL")
         self.assertEqual(decision["decision"], "block")
         self.assertTrue(called)
-        self.assertNotIn("consult is NOT a review",
+        self.assertNotIn("panel run is NOT a review",
                          self.classifier_prompt.read_text())
 
-    def test_consult_note_needs_edits_in_the_cycle(self):
-        # A consult turn that only ran the panel and reported its menu produced
+    def test_panel_note_needs_edits_in_the_cycle(self):
+        # A panel turn that only ran the reviewers and reported back produced
         # no artifact. The note claims the turn holds NEW work; injected here it
         # would push a review-of-nothing toward NORMAL — the exact inverse of
         # the downgrade it exists to counter. Long prose + a Bash tool call
         # reach the classifier; the note must not ride along.
         records = [
-            user("consult the panel about this flaky test"),
-            a_tool("Skill", {"skill": "consult", "args": ""}),
-            tool_result("Launching skill: consult"),
-            a_tool("Bash", {"command": "bash ~/.claude/skills/consult/panel.sh "
+            user("ask the panel about this flaky test"),
+            a_tool("Skill", {"skill": "panel", "args": ""}),
+            tool_result("Launching skill: panel"),
+            a_tool("Bash", {"command": "bash ~/.claude/skills/panel/panel.sh "
                                        "--mode consult /tmp/ev.txt 'flaky test' > out.log"}),
             a_text("The panel's menu, reconciled: three first moves converge on "
                    "the fixture; reporting before touching anything. " + LONG_PROSE),
@@ -299,7 +298,7 @@ class HookTest(unittest.TestCase):
         decision, called = self.run_hook(records, level="NONE")
         self.assertEqual(decision["decision"], "approve")
         self.assertTrue(called)
-        self.assertNotIn("consult is NOT a review",
+        self.assertNotIn("panel run is NOT a review",
                          self.classifier_prompt.read_text())
 
     def test_prompted_cycle_backstop_without_stop_hook_active(self):
