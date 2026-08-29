@@ -72,6 +72,8 @@ Reads on stdin: {"findings": [<finding>, ...], "self_clean": <bool, optional>}
               end; unverifiable = untested
   "severity": "HIGH" | "MED" | "LOW"                              optional
   "action":   "fixed" | "deferred" | "dismissed" | "none"         optional
+              (those four literal values only; null = absent; omit
+               the key rather than inventing a synonym)
 }
 
 "self_clean": true marks that the session's own self-review COMPLETED and
@@ -179,10 +181,21 @@ def validate_finding(f, i):
     if f.get("verdict") not in VERDICTS:
         errs.append(f"{tag}: 'verdict' must be one of {list(VERDICTS)}")
     if "severity" in f and f["severity"] not in SEVERITIES:
-        errs.append(f"{tag}: 'severity', when given, must be one of {list(SEVERITIES)}")
+        errs.append(f"{tag}: 'severity' is {f['severity']!r} — when given, must be "
+                    f"one of {list(SEVERITIES)}")
     if "action" in f and f["action"] not in ACTIONS:
-        errs.append(f"{tag}: 'action', when given, must be one of {list(ACTIONS)}")
+        errs.append(f"{tag}: 'action' is {f['action']!r} — when given, must be "
+                    f"one of {list(ACTIONS)}")
     return errs
+
+
+def strip_null_optionals(f):
+    """A JSON-emitting caller routinely writes null for an optional field it has no
+    value for; treat that as the field being absent rather than failing the batch."""
+    if not isinstance(f, dict):
+        return f
+    return {k: v for k, v in f.items()
+            if not (k in ("severity", "action") and v is None)}
 
 
 def cmd_verdict(args):
@@ -229,6 +242,7 @@ def cmd_verdict(args):
             die("'self_clean' must be a boolean — it marks that the self-review "
                 "COMPLETED and found nothing, which is different from not logging it")
         self_clean = data["self_clean"]
+    findings = [strip_null_optionals(f) for f in findings]
     errs = [e for i, f in enumerate(findings) for e in validate_finding(f, i)]
     if errs:
         die("invalid findings, nothing logged:\n  " + "\n  ".join(errs))

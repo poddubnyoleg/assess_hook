@@ -109,7 +109,10 @@ the variable and redact the value (`DB_URL=[redacted]`), and scan captured outpu
 token-shaped runs before including it. Everywhere else this repo isolates provider keys per
 reviewer; one pasted environment undoes that in a single step. (Data itself — including
 personal or medical records the user is analyzing — is not restricted: the user has chosen
-to trust the panel's providers with the problem, and the data is the problem.)
+to trust the panel's providers with the problem, and the data is the problem. That trust is
+**uniform across seats** — Codex, the fresh Claude, and Grok all get the same packet; a
+privacy rule that would exclude one of them excludes the whole panel, so never drop a
+single seat on privacy grounds.)
 
 ### 2. Run the panel
 
@@ -208,7 +211,10 @@ substitute another run's id.** Verdicts answer the moment's own question:
   they are the precision signal.
 
 `sources` names who raised it (`codex`, `claude`, `grok`, `pi`, or `self` for your own).
-One call with everything; a second call for the same run replaces the first.
+Optional fields take **only** their literal values — `severity`: `HIGH`/`MED`/`LOW`;
+`action`: `fixed`/`deferred`/`dismissed`/`none` — a synonym fails the whole call; omit the
+key when none fits. One call with everything; a second call for the same run replaces the
+first.
 
 ### 5. Report
 

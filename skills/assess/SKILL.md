@@ -52,8 +52,12 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
    to refute — not approve. Each is read-only.
 
    - **Grok** needs the `grok` CLI authenticated (`grok login`); when it can't run, the
-     panel prints `>>> SKIPPED` with the reason and continues with the rest. Disable it
-     with `ASSESS_PANEL_GROK=0`; override with `ASSESS_GROK_MODEL` / `ASSESS_GROK_EFFORT`
+     panel prints `>>> SKIPPED` with the reason and continues with the rest. It is trusted
+     with the artifact **exactly as Codex and the fresh Claude are** — all three are
+     external providers, and a privacy or data-sensitivity rule either excludes the whole
+     panel or none of it; never disable one seat on privacy grounds the others don't face.
+     Disable it (a missing CLI, an explicit user choice — not a privacy inference) with
+     `ASSESS_PANEL_GROK=0`; override with `ASSESS_GROK_MODEL` / `ASSESS_GROK_EFFORT`
      (default `grok-4.6` at `xhigh`, its top tier — the CLI rejects a level the model
      doesn't support rather than clamping, so a bad value fails fast and loud).
 
@@ -129,6 +133,10 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
      including partial output printed before a timeout or crash.
    - `verdict`: `confirmed` (checked against the work, real), `refuted` (checked, wrong),
      `unverifiable` (could not be settled).
+   - `severity` (optional): `HIGH`, `MED`, or `LOW`. `action` (optional): what you did —
+     `fixed`, `deferred`, `dismissed`, or `none`. **Those literal values only** — a synonym
+     (`applied`, `skipped`, `n/a`, …) fails the whole call and nothing gets logged; when
+     none fits, omit the key.
    - Log the **refuted findings too** — they are the precision signal; logging only what
      was confirmed flatters every reviewer equally and measures nothing.
    - Log your **own self-review findings too**, with `self` in `sources` — the list you

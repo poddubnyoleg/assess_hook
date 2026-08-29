@@ -286,6 +286,27 @@ class PanelLogTest(unittest.TestCase):
         # carries `self`, so 1 of 1.
         self.assertIn("Self coverage: 1 of 1", rep)
 
+    def test_verdict_treats_null_optionals_as_absent(self):
+        # A JSON-emitting model writes "action": null for every finding it took no
+        # action on; that must not fail the whole batch, and the null must not
+        # reach the log.
+        rid = self._seed_run()
+        r = self.run_stats("verdict", rid, stdin=json.dumps({"findings": [
+            {"summary": "x", "sources": ["codex"], "verdict": "confirmed",
+             "severity": None, "action": None}]}))
+        self.assertEqual(0, r.returncode, r.stderr)
+        stored = [rec for rec in self.records() if rec.get("t") == "verdicts"]
+        self.assertNotIn("action", stored[-1]["findings"][0])
+        self.assertNotIn("severity", stored[-1]["findings"][0])
+
+    def test_verdict_error_names_the_offending_enum_value(self):
+        rid = self._seed_run()
+        r = self.run_stats("verdict", rid, stdin=json.dumps({"findings": [
+            {"summary": "x", "sources": ["codex"], "verdict": "confirmed",
+             "action": "applied"}]}))
+        self.assertNotEqual(0, r.returncode)
+        self.assertIn("'applied'", r.stderr)
+
     def test_verdict_refuses_an_unknown_run_id(self):
         self._seed_run()
         r = self.run_stats("verdict", "no-such-run",
