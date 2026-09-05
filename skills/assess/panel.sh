@@ -3,8 +3,8 @@
 #
 # Runs up to four INDEPENDENT reviewers in parallel. None sees the others' output or any
 # prior review, so their errors stay independent. Reconciliation is the caller's job.
-#   1. Codex   — gpt-5.6-sol / xhigh (override: ASSESS_CODEX_MODEL / ASSESS_CODEX_EFFORT);
-#                 a different model lineage. Needs codex-cli >= 0.144 for gpt-5.6-sol.
+#   1. Codex   — gpt-6-astra / xhigh (override: ASSESS_CODEX_MODEL / ASSESS_CODEX_EFFORT);
+#                 a different model lineage. Needs codex-cli >= 0.153.1 for gpt-6-astra.
 #   2. Fresh Claude — clean context, read-only; same lineage, but no anchoring.
 #   3. Grok — ON BY DEFAULT (ASSESS_PANEL_GROK=0 to disable). A third lineage: xAI's
 #                 grok-4.6 at xhigh — its top tier; unlike pi, the grok CLI FAILS FAST on a
@@ -1076,7 +1076,7 @@ if [ "$pi_preflight_cost" -gt 0 ]; then
   TIMEOUT=$(( TIMEOUT - pi_preflight_cost ))
   [ "$TIMEOUT" -lt "$pi_timeout_floor" ] && TIMEOUT="$pi_timeout_floor"
 fi
-CODEX_MODEL="${ASSESS_CODEX_MODEL:-gpt-5.6-sol}"
+CODEX_MODEL="${ASSESS_CODEX_MODEL:-gpt-6-astra}"
 CODEX_EFFORT="${ASSESS_CODEX_EFFORT:-xhigh}"
 # The fresh Claude's model/effort, defined ONCE for both the launch and the telemetry
 # record. Hardcoded twice, the first change to the launch flags would silently mislabel

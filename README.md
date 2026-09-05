@@ -44,7 +44,7 @@ A cheap classifier (Claude Sonnet, low effort) decides the level on every Stop. 
 
 `panel.sh` runs independent skeptical reviewers **in parallel** (wall-clock ≈ the slowest one, not the sum) over the same artifact:
 
-- **Codex** — `gpt-5.6-sol` at `xhigh` effort; a different model lineage.
+- **Codex** — `gpt-6-astra` at `xhigh` effort; a different model lineage.
 - **Fresh Claude** — a clean `claude -p` context, read-only tools (`Read`/`Grep`/`Glob`), no MCP.
 - **Grok** *(on by default; `ASSESS_PANEL_GROK=0` disables)* — `grok-4.6` at `xhigh`, its top tier; a third lineage. See [the Grok reviewer](#the-grok-reviewer-on-by-default).
 - **Pi** *(optional, `ASSESS_PANEL_PI=1`)* — `moonshotai/kimi-k3` at `high` via OpenRouter; a fourth lineage. See [the fourth reviewer](#the-fourth-reviewer-optional).
@@ -366,7 +366,7 @@ environment, where an `env` dump will find it.
 ## Requirements
 
 - **Claude Code** (`claude` CLI), authenticated.
-- **Codex** (`codex` CLI ≥ 0.144), authenticated. Model and effort are pinned to `gpt-5.6-sol` / `xhigh` (override with `ASSESS_CODEX_MODEL` / `ASSESS_CODEX_EFFORT`).
+- **Codex** (`codex` CLI ≥ 0.153.1), authenticated. Model and effort are pinned to `gpt-6-astra` / `xhigh` (override with `ASSESS_CODEX_MODEL` / `ASSESS_CODEX_EFFORT`).
 - **Grok** (`grok` CLI — `curl -fsSL https://x.ai/cli/install.sh | bash`), authenticated via `grok login` or `XAI_API_KEY`. On by default; without it every panel prints a skip naming the cause (`ASSESS_PANEL_GROK=0` silences that permanently).
 - macOS or Linux (the hook and `panel.sh` are bash + standard tools).
 - *Optional, only for the fourth reviewer:* **pi** (`npm i -g @mariozechner/pi-coding-agent`), a provider key, and `ripgrep` on PATH (without it the reviewer keeps `read`/`ls` but loses `grep`/`find`, and says so).

@@ -96,7 +96,7 @@
 
   <rect x="400" y="502" width="160" height="96" rx="10" fill="#cdeeea" stroke="#1f9e8f" stroke-width="1.5"/>
   <text x="480" y="528" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Codex</text>
-  <text x="480" y="550" text-anchor="middle" font-size="11" fill="#3b4350">gpt-5.6-sol · xhigh</text>
+  <text x="480" y="550" text-anchor="middle" font-size="11" fill="#3b4350">gpt-6-astra · xhigh</text>
   <text x="480" y="570" text-anchor="middle" font-size="10" fill="#57606a">a different lineage</text>
   <text x="480" y="588" text-anchor="middle" font-size="10" fill="#57606a">read-only</text>
 
