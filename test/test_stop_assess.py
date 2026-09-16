@@ -91,6 +91,7 @@ class HookTest(unittest.TestCase):
 
         env = dict(os.environ, PATH=f"{fakebin}:{os.environ['PATH']}")
         env.pop("ASSESS_SKIP_HOOK", None)
+        env.pop("PNEUMA_SIT", None)
 
         proc = subprocess.run(
             [sys.executable, str(HOOK)],
@@ -490,6 +491,52 @@ class HookTest(unittest.TestCase):
                        a_text("Audit synthesized. " + LONG_PROSE)],
             level="NORMAL")
         self.assertEqual(decision["decision"], "block")
+
+    # --- pneuma-agent sit sessions ---
+
+    def test_sit_session_approves_without_classifying(self):
+        # A sit (pneuma-agent) ends a model turn after every listening command,
+        # so the hook would fire at every silence and block the practice. A Bash
+        # tool_use whose COMMAND is `pneuma turn` / `pneuma music` (optionally
+        # after env assignments, `uv run` and a path) marks the session as a sit.
+        records = [
+            user("/sit"),
+            a_tool("Bash", {"command": "uv run scripts/pneuma.py music on"}),
+            tool_result("music: on"),
+            a_tool("Write", {"file_path": "/x/notes.md", "content": "plan " * 100}),
+            a_text("Two quiet minutes first. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="TURBO")
+        self.assertEqual(decision["decision"], "approve")
+        self.assertFalse(called)
+
+    def test_sit_command_mentioned_inside_another_command_is_not_a_sit(self):
+        # grep/echo/cat that merely MENTION the command must not disarm the
+        # review for a design session working on the pneuma docs.
+        records = [
+            user("fix the docs"),
+            a_tool("Bash", {"command": 'grep -n "pneuma turn" docs/bare_bones.md'}),
+            tool_result("30: ... pneuma turn ..."),
+            a_tool("Edit", {"file_path": "/x/doc.md", "old_string": "a", "new_string": "b"}),
+            a_text("Fixed the wording. " + LONG_PROSE),
+        ]
+        decision, called = self.run_hook(records, level="NORMAL")
+        self.assertEqual(decision["decision"], "block")
+        self.assertTrue(called)
+
+    def test_pneuma_sit_env_approves_immediately(self):
+        tmp = Path(tempfile.mkdtemp())
+        transcript = tmp / "t.jsonl"
+        transcript.write_text("\n".join(json.dumps(r) for r in WORK) + "\n")
+        env = dict(os.environ, PNEUMA_SIT="1")
+        env.pop("ASSESS_SKIP_HOOK", None)
+        proc = subprocess.run(
+            [sys.executable, str(HOOK)],
+            input=json.dumps({"transcript_path": str(transcript),
+                              "last_assistant_message": ""}),
+            capture_output=True, text=True, env=env, timeout=30,
+        )
+        self.assertEqual(json.loads(proc.stdout)["decision"], "approve")
 
     # --- classification plumbing ---
 

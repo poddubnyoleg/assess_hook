@@ -488,6 +488,28 @@ if transcript_path:
     except Exception:
         pass
 
+# 0d. Skip for pneuma-agent sit sessions. A sit ends a model turn after every
+# `pneuma turn` (the listening command runs detached and its exit wakes the
+# agent), so this hook would fire at every silence and block the practice.
+# Detected two ways: the PNEUMA_SIT=1 environment variable (set by /sit or by
+# hand), or a Bash tool_use in the transcript whose command runs `pneuma turn`
+# or `pneuma music` AS the command (optionally after environment assignments,
+# `uv run` and a path), so a mention inside echo, grep or prose does not count.
+# Once matched, every later Stop in the session approves; the sit session is
+# not a coding session, so that is the intent. Design: pneuma-agent/docs/bare_bones.md.
+if os.environ.get("PNEUMA_SIT") == "1":
+    approve()
+if transcript_path:
+    try:
+        with open(transcript_path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 5_000_000))
+            tail = f.read().decode("utf-8", errors="replace")
+        if re.search(r'"command":\s*"(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:uv run\s+)?(?:\S*/)?pneuma(?:\.py)? (?:turn|music)\b', tail):
+            approve()
+    except Exception:
+        pass
+
 # 1. Analyze transcript since last user message
 (ok, has_tools, any_tools, has_assess, prior_assess, prompted, pending_bg,
  has_panel, recent_text) = analyze_transcript(transcript_path)
