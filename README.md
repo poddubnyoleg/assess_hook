@@ -44,12 +44,35 @@ A cheap classifier (Claude Sonnet, low effort) decides the level on every Stop. 
 
 `panel.sh` runs independent skeptical reviewers **in parallel** (wall-clock ≈ the slowest one, not the sum) over the same artifact:
 
-- **Codex** — `gpt-6-astra` at `xhigh` effort; a different model lineage.
-- **Fresh Claude** — a clean `claude -p` context, read-only tools (`Read`/`Grep`/`Glob`), no MCP.
+- **Codex** — `gpt-6-astra` at `xhigh` effort; a different model lineage. Runs **with exec** in its own scratch copy of the project (`--sandbox workspace-write`).
+- **Fresh Claude** — a clean `claude -p` context, no MCP. **With exec**: Bash in its own scratch copy, fenced by Claude Code's sandbox, plus edits scoped to that copy; otherwise read-only tools (`Read`/`Grep`/`Glob`).
 - **Grok** *(on by default; `ASSESS_PANEL_GROK=0` disables)* — `grok-4.6` at `xhigh`, its top tier; a third lineage. See [the Grok reviewer](#the-grok-reviewer-on-by-default).
 - **Pi** *(optional, `ASSESS_PANEL_PI=1`)* — `moonshotai/kimi-k3` at `high` via OpenRouter; a fourth lineage. See [the fourth reviewer](#the-fourth-reviewer-optional).
 
 All are told to **find problems, not to praise**, and to judge independently. None sees the others' output or any prior review, so their errors stay decorrelated. The reviewer prompt is fixed inside the script (it's a guard — not something the orchestrator rewrites per call), and the *task* handed to them is the original request verbatim, never the agent's summary of what it did (a paraphrase would re-anchor them).
+
+## Evidence, not impressions: the finding contract and the exec seats
+
+Decorrelating the reviewers fixes *whose* blind spots get checked. It does not fix *how*: a read-only reviewer reads the diff and argues, and the author then judges the argument. After 121 logged review runs the telemetry showed the limit of that — every seat, the author's own self-review included, landed at 93–95% precision. Heterogeneous reviewers converging on one number means the number measures the judge's acceptance threshold, not the reviewers, and a metric built to decide who earns a seat could no longer tell them apart. [VeriHarness](https://arxiv.org/abs/2610.00972) names the two moves that change this: findings must carry the evidence that produced them, and a verifier that can *query the environment* beats one that can only reason about it (their tools-only baseline recovers about half the full protocol's gain). Both are borrowed here; the paper's central mechanism — ten same-model rollouts — is not, because the panel decorrelates by lineage instead.
+
+**The contract (every seat, review mode).** Each finding is a severity tag and a one-line claim, then `CHECKED` (what was run, or which file and lines were read — precise enough to repeat), `FOUND` (what it showed, quoted), and `WHY`. A claim whose FOUND does not show the problem is tagged `[UNTESTED]` in place of a severity, with what would settle it. A reviewer may not say it "reproduced" anything unless the command is in CHECKED. And before reading the artifact for defects, every seat enumerates the **task's obligations** — what its own words require delivered — and checks each landed: an obligation the artifact never addresses is a finding although no line of it is wrong, and it is the class of miss that every lineage makes together, because all of them anchor on the artifact in front of them rather than on the task text.
+
+**The exec seats.** Codex and the fresh Claude each get a throwaway **scratch copy** of the project: a `--shared` git clone detached at `HEAD` with the uncommitted change applied (`git diff HEAD`, binary-safe, immune to your `diff.noprefix`/textconv config), the untracked files and the working trees of populated submodules copied in — the project exactly as you have it — with gitignored dependency dirs (`node_modules`, `.venv`, `venv`, `.tox`, `vendor`) symlinked read-through so tests can import. The copy has no remote and is built with hooks off. A clone, not a worktree, for a reason the panel found on its own first exec run: a worktree's metadata lives in the real `.git`, and Claude Code adds a worktree's common dir to its sandbox's writable set — the fresh Claude moved a ref in the real repository from inside its "fenced" copy. In a clone every git write stays inside the copy. There the seats write one reproduction from the task's own sentence (the entry point it names, not the helper the diff happens to touch), try a fix, and run the project's tests only when cheap. Nothing reaches the real tree: Codex is fenced by its own OS sandbox (`--sandbox workspace-write` with a private `TMPDIR` beside its copy and `/tmp` excluded: writes to the copy and that dir only, network closed), and the fresh Claude by Claude Code's Bash sandbox, switched on per launch with `--settings` (it is *off* in `claude -p` unless settings say so; network closed, the panel's working dir unreadable to it), plus an `Edit(//<scratch>/**)` rule for the Write/Edit tools. All verified empirically on 2026-10-12.
+
+**The canary.** Claude Code's sandbox **fails open**: if it cannot initialize — typically because the panel itself was run inside another sandbox — the first Bash call errors and every later one runs unconfined. So before the fresh Claude's seat is granted, a cheap `claude -p` (haiku) with the same settings runs one command that tries to write a file into the real tree and one into the real `.git`, then echoes a nonce it must read from disk. The seat is granted only when the nonce came back (it is not in the prompt, so an error message quoting the command, or an answer composed without running it, cannot carry it), no write was reported, neither file exists afterwards, and the exit status is zero. Anything else falls the seat back to read-only and says so in its section. Structural, not hortatory: the reviewer is never asked to check its own fence.
+
+**Who does not get it, and why.** Grok stays read-only on purpose: it is the slowest and least reliable seat (median 449s, a third of its runs lost to failures and timeouts), its value is a third lineage's *judgement*, and facts from execution do not need three lineages to establish — a failing test fails for everyone. Pi, the opt-in fourth, likewise. Scope and consult modes stay read-only entirely: nothing is built at t=0, and mid-task the consultants propose while the session executes.
+
+**Degrades loudly, per seat.** No `git`, a root outside a repository, a repository with no commits, untracked files over the size cap, a worktree that will not build, a canary that did not prove the fence — each prints a `>>> NOTE` naming the cause (once for the run, or inside the affected seat's section) and that seat runs read-only, its findings to be read as argued rather than shown. `ASSESS_PANEL_EXEC=0` is the only silent state.
+
+| Variable | Default | |
+|---|---|---|
+| `ASSESS_PANEL_EXEC` | *(on)* | `0` runs every seat read-only, as before. An unrecognised value is a loud note, never a guess. Review mode only. |
+| `ASSESS_PANEL_EXEC_LINK` | `node_modules .venv venv .tox vendor` | Basenames of gitignored dependency dirs to symlink into the scratch copies. |
+| `ASSESS_PANEL_EXEC_MAX_MB` | `500` | Cap on the total size of untracked files copied into each scratch copy; over it, the seat runs read-only and says so — commit or gitignore stray data instead. |
+| `ASSESS_CANARY_MODEL` | `haiku` | The model that proves the fresh Claude's fence. |
+
+**Costs and caveats.** The scratch builds plus the canary add roughly fifteen seconds of preflight, charged to the shared timeout. A reviewer that runs a reproduction and a few tests needs more than the 540s foreground default — for code artifacts, run the panel backgrounded with `ASSESS_PANEL_TIMEOUT=1500`; with exec on under a 900s budget the panel says so at the top of its output. Two seats running in parallel on one machine contend for CPU and can collide on ports or shared resources; the prompt tells reviewers to run the suite only when it is cheap or directly exercises the change, and to record a check they could not afford as `[UNTESTED]`. A project installed *editable* resolves imports to the real tree, not the copy; the prompt tells reviewers to check `__file__` once and prefer `PYTHONPATH=.`. The seats cannot write into the panel's own working directory, where the other seat's output lands: Codex gets a private `TMPDIR` beside its copy and loses `/tmp` (`exclude_slash_tmp`); the fresh Claude's sandbox pins its own `TMPDIR` and denies the real temp root by itself, and is additionally denied reads of that directory. What remains is reads by Codex, which its sandbox does not restrict — a seat that went looking could in principle find the other's output file; the copies live in a separate temp dir so an `ls ..` does not land on it, the prompt gives it no reason to look, and the read-only panel had the same exposure through the `Read` tool. And exec gives prompt injection hands: the artifact is declared data, but a reviewer that runs commands can be made to run them — acceptable for your own code, worth `ASSESS_PANEL_EXEC=0` when reviewing a diff you did not write.
 
 ## How findings are combined (turbo)
 
@@ -57,6 +80,8 @@ Not by majority vote — the working agent and the fresh Claude are the same mod
 
 - a **verifiable** finding (a real bug, a failing case, a spec mismatch) → check it yourself, fix if real;
 - a finding **one reviewer raised and the others missed** → investigate it; cross-lineage disagreement is signal, not a minority to overrule;
+- **every finding carries `CHECKED`/`FOUND`** → repeat the CHECKED step in the real tree before logging a verdict (exec seats' commands assume their scratch cwd, which is gone); a FOUND that does not show the problem is a claim, not evidence;
+- **`[UNTESTED]`** → a lead, not a finding: no severity, no vote; test it yourself, then log it like any other;
 - **all agree it's fine** → high confidence, move on.
 
 A 2-1 split is especially not a vote: the working agent and the fresh Claude agreeing against Codex, Grok, or Pi is *one* lineage, not two.
@@ -150,7 +175,7 @@ is permanent.
 | `ASSESS_GROK_EFFORT` | `xhigh` | grok-4.6's top tier. Unlike pi, the CLI **rejects** a level the model doesn't support instead of clamping, so a bad value is an immediate loud `FAILED`, not a silent downgrade. |
 | `XAI_API_KEY` | — | Optional; without it grok authenticates from `~/.grok/auth.json`. **Only the grok reviewer sees it** — it is stripped from the environment codex and claude inherit, same as every other provider key. |
 
-**Read-only and hermetic, like the others.** It runs with `--sandbox read-only` (an
+**Read-only and hermetic.** It runs with `--sandbox read-only` (an
 OS-level Seatbelt/Landlock guard on the whole process) plus a `--tools
 read_file,grep,list_dir` allowlist that also excludes web search and subagents, and
 against a **throwaway `GROK_HOME`** with `auth.json` symlinked in — so it inherits no
@@ -204,7 +229,7 @@ PATH, that a credential is resolvable (environment → key file → a provider e
 matters more than it sounds: pi does *not* fail fast on an unknown id — it warns and then
 dies at the provider with a `401`, which reads like an auth problem.
 
-**Read-only and hermetic, like the others.** `--tools read,grep,find,ls` is an allowlist over
+**Read-only and hermetic.** `--tools read,grep,find,ls` is an allowlist over
 pi's built-in read-only set (its others are `bash`/`edit`/`write`), and every source of
 ambient state is switched off: no session, no extensions or installed packages, no skills, no
 prompt templates, and **no `AGENTS.md`/`CLAUDE.md` discovery** — a reviewer that inherits your
@@ -314,9 +339,11 @@ the log path pinned); `verdict --schema` prints the input shape.
 
 - **Reliability & latency**: per reviewer, how often it actually delivered a review vs
   skipped/failed/timed out (with the top skip reasons), and its median duration.
-- **Findings volume**: findings per run by severity, as tagged, plus the median delivered
-  output size — so a reviewer whose tags went off-spec is distinguishable from one that
-  found nothing.
+- **Findings volume**: findings per run by severity, as tagged, plus `UNTESTED` (the
+  reviewer's own admission that a claim was not checked — not counted in per-run), `exec`
+  (the runs in which the seat could execute, so volume can be read against access), and
+  the median delivered output size — so a reviewer whose tags went off-spec is
+  distinguishable from one that found nothing.
 - **Relevance**, split by mode — never pooled, because the modes' verdicts answer
   different questions (review: "was it real"; scope: "did it change the reading";
   consult: "did acting on it unblock") and scope and consult hand each reviewer its own
@@ -369,6 +396,7 @@ environment, where an `env` dump will find it.
 - **Codex** (`codex` CLI ≥ 0.153.1), authenticated. Model and effort are pinned to `gpt-6-astra` / `xhigh` (override with `ASSESS_CODEX_MODEL` / `ASSESS_CODEX_EFFORT`).
 - **Grok** (`grok` CLI — `curl -fsSL https://x.ai/cli/install.sh | bash`), authenticated via `grok login` or `XAI_API_KEY`. On by default; without it every panel prints a skip naming the cause (`ASSESS_PANEL_GROK=0` silences that permanently).
 - macOS or Linux (the hook and `panel.sh` are bash + standard tools).
+- **git**, for the exec seats' scratch copies. Without it, or outside a git repository, Codex and the fresh Claude run read-only and the panel says so.
 - *Optional, only for the fourth reviewer:* **pi** (`npm i -g @mariozechner/pi-coding-agent`), a provider key, and `ripgrep` on PATH (without it the reviewer keeps `read`/`ls` but loses `grep`/`find`, and says so).
 
 ## Files
@@ -382,6 +410,7 @@ environment, where an `env` dump will find it.
 - `test/test_panel_pi.py` — pins the pi reviewer's gating: off by default, loud when enabled-but-unavailable, and never rendered as agreement when it dies.
 - `test/test_panel_log.py` — pins the telemetry: record correctness per outcome, soft-fail logging, no secrets in the log, and the verdict/report loop.
 - `test/test_panel_consult.py` — pins the mid-task (`--mode consult`) panel: the problem statement is required, the lenses stay distinct while FIRST MOVE stays shared, the footer reconciles as a menu, and telemetry records the mode without severity counts.
+- `test/test_panel_exec.py` — pins the exec seats: on by default in a git repo; the scratch copy is a self-contained clone (no remote, nothing registered in the real repo, hooks off) holding HEAD plus the uncommitted edit, untracked files, a populated submodule's working tree and linked dependency dirs, built with a diff that survives `diff.noprefix`; the canary gates the fresh Claude's seat on a disk-read nonce plus file checks in the real tree and the real `.git`, and a canary that writes, lies, quotes the command, errors or says nothing falls it back loudly and leaves no file; every unavailable-exec path is a NOTE or silent-by-request; scope/consult stay read-only; the evidence contract reaches every seat; the seats' temp dirs are apart from the panel's; telemetry records `exec` and `untested`.
 - `skills/panel/panel.sh` — a symlink to the script above, not a copy, so the skill cites a path inside its own directory. Deleting it breaks the skill.
 - `install.sh` — symlinks the hook + skill into `~/.claude/` (backs up anything already there).
 

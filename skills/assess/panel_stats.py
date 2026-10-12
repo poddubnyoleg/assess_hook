@@ -327,10 +327,13 @@ def cmd_report(args):
     # "no tags" and "no findings" stay distinguishable.
     review_runs = [r for r in runs.values() if r.get("mode") == "review"]
     if review_runs:
+        # UNTESTED is the reviewer's own admission that a claim was not checked (it
+        # replaces the severity tag), so it is NOT in per-run; exec counts the runs in
+        # which the seat could execute, so volume can later be read against access.
         print("\nFindings volume (review runs, as tagged by the reviewer)")
-        widths = (8, 5, 5, 5, 5, 8, 7)
-        print(fmt_row(("reviewer", "runs", "HIGH", "MED", "LOW", "per-run",
-                       "med_kb"), widths))
+        widths = (8, 5, 5, 5, 5, 9, 8, 7, 5)
+        print(fmt_row(("reviewer", "runs", "HIGH", "MED", "LOW", "UNTESTED", "per-run",
+                       "med_kb", "exec"), widths))
         for name in REVIEWERS:
             infos = [r["reviewers"][name] for r in review_runs
                      if r.get("reviewers", {}).get(name, {}).get("status") in ("ok", "empty")]
@@ -339,10 +342,12 @@ def cmd_report(args):
             h = sum(i.get("high", 0) for i in infos)
             m = sum(i.get("med", 0) for i in infos)
             l = sum(i.get("low", 0) for i in infos)
+            u = sum(i.get("untested", 0) for i in infos)
+            ex = sum(1 for i in infos if i.get("exec"))
             kbs = [i["out_bytes"] / 1024 for i in infos if "out_bytes" in i]
             med_kb = f"{statistics.median(kbs):.1f}" if kbs else "—"
-            print(fmt_row((name, len(infos), h, m, l,
-                           f"{(h + m + l) / len(infos):.1f}", med_kb), widths))
+            print(fmt_row((name, len(infos), h, m, l, u,
+                           f"{(h + m + l) / len(infos):.1f}", med_kb, ex), widths))
 
     # Relevance — split by mode, never pooled: the modes' verdicts answer different
     # questions (review: "was the finding real"; scope: "did it change the reading";

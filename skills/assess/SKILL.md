@@ -45,11 +45,33 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
    <the original request, pasted exactly as written>
    VERBATIM
    )"
-   bash ~/.claude/skills/assess/panel.sh "$ART" "$TASK"
+   ASSESS_PANEL_TIMEOUT=1500 bash ~/.claude/skills/assess/panel.sh "$ART" "$TASK" > "$TMPDIR/panel_out.txt" 2>&1
    ```
+   **Run that Bash call in the background** (`run_in_background`), with the sandbox
+   disabled, and read `$TMPDIR/panel_out.txt` when the completion notice arrives. The
+   exec seats run a reproduction and a few tests, which the 540s foreground default
+   does not reliably cover; backgrounding removes the 10-minute foreground cap that the
+   default exists for. Only if backgrounding is unavailable, run it in the foreground
+   without `ASSESS_PANEL_TIMEOUT` and with the Bash `timeout` at its maximum.
    This runs Codex (a different model), a fresh Claude (clean context, no anchoring),
    and Grok (xAI's grok-4.6 — a third lineage, **on by default**), in parallel, each told
-   to refute — not approve. Each is read-only.
+   to refute — not approve. **Codex and the fresh Claude can EXECUTE**: each works in its
+   own throwaway scratch copy of the project (a clone with your uncommitted change
+   applied and untracked files copied in, no remote), fenced by its CLI's sandbox,
+   network closed, and is told to build one reproduction from the task's own sentence,
+   try a fix, and run the project's tests only when cheap. Grok (and pi) stay read-only
+   by design. **Every finding, from every seat,
+   must carry `CHECKED` (what was run or read) and `FOUND` (what it showed, quoted), or be
+   tagged `[UNTESTED]` instead of a severity.**
+
+   - **Exec is on by default** in a git repo (`ASSESS_PANEL_EXEC=0` turns it off). It costs
+     a ~15s preflight: the fresh Claude's seat is granted only after a cheap canary proves
+     its sandbox refuses a write outside the copy (that sandbox fails OPEN, so an unproven
+     fence is no fence). A seat that cannot be given exec — no git, no commits, a canary
+     that did not prove the fence — prints a `>>> NOTE` in its section and runs read-only;
+     read its findings as argued, not shown. **For a code artifact, prefer running the
+     panel BACKGROUNDED with `ASSESS_PANEL_TIMEOUT=1500`**: a reviewer that runs the suite
+     and a reproduction needs more than the 540s foreground default.
 
    - **Grok** needs the `grok` CLI authenticated (`grok login`); when it can't run, the
      panel prints `>>> SKIPPED` with the reason and continues with the rest. It is trusted
@@ -80,12 +102,11 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
      natural response is to re-run it and pay again. `panel.sh` probes for this and turns
      it into an immediate `>>> SKIPPED` naming the host, but it cannot fix it from inside:
      only the caller can choose not to sandbox the call.
-   - **Give the Bash call a long timeout** — set the Bash tool `timeout` to the max
-     (`600000` ms). Codex and Claude run at **xhigh** effort and may Read/Grep the repo, so
-     they can take several minutes; the default 2-min Bash timeout would kill the panel
-     before they finish. The panel's own per-reviewer watchdog (540s) stays under that cap
-     and degrades gracefully. For an even longer budget, run the panel **backgrounded**
-     (no foreground cap) with `ASSESS_PANEL_TIMEOUT=1500` or higher.
+   - **In the foreground, give the Bash call a long timeout** — set the Bash tool `timeout`
+     to the max (`600000` ms). Codex and Claude run at **xhigh** effort and may Read/Grep
+     the repo, so they can take several minutes; the default 2-min Bash timeout would kill
+     the panel before they finish. The panel's own per-reviewer watchdog (540s) stays under
+     that cap and degrades gracefully — and prints a note when exec seats are on under it.
    - **A reviewer can TIME OUT, FAIL, or be SKIPPED.** If the panel prints `>>> TIMED OUT` /
      `>>> FAILED` / `>>> SKIPPED` for a reviewer, that lineage produced nothing — the panel
      is **incomplete**, not clean. Say so explicitly when reconciling and, if it matters,
@@ -103,6 +124,14 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
      the task; you never author their lens.
 4. Reconcile by axis — **do NOT majority-vote** (you and the fresh Claude are the same
    lineage and correlate, so a split that looks 2-1 may be one voice against one):
+   - **every finding carries `CHECKED`/`FOUND`** → repeat the CHECKED step yourself in the
+     real tree before you log a verdict (the exec seats' commands assume their scratch cwd,
+     which is gone — run them from your project root). A FOUND that does not actually show
+     the problem is a claim, not evidence: treat it as unconfirmed until your own check
+     settles it. An **obligation finding** ("the task asked for X and the artifact never
+     addresses it") is checked against the task's words, not the diff.
+   - **`[UNTESTED]` items are leads, not findings** → no severity, no vote. Test them
+     yourself, then log them `confirmed`/`refuted` like any other.
    - **verifiable finding** (a real bug, a failing case, a spec mismatch) → check it
      yourself, fix if real;
    - **raised by one reviewer, missed by the others** → investigate it; cross-lineage
@@ -153,6 +182,9 @@ Why the extra reviewers, and why they are not redundant:
   own runs.
 - **Fresh Claude** is the same model with no priming → catches anchoring and
   "solved the wrong problem," which the working session cannot see by itself.
+- **Exec** (Codex and the fresh Claude) → findings that report what the environment
+  SHOWED when the code was run, not what the diff suggests; that evidence does not depend
+  on any model's priors, which is the one thing a change of lineage cannot buy.
 - **Grok** is a third lineage, on by default → the same argument as Codex, again, against
   a model trained by neither Anthropic nor OpenAI.
 - **Pi/Kimi** (optional) is a fourth lineage → the argument once more, at extra cost,
