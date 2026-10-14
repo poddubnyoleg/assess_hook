@@ -119,6 +119,11 @@ printf 'GROK-STUB-REVIEW\n'
 printf '[LOW] grok stub nit\n'
 """
 
+AGY_STUB = r"""#!/usr/bin/env bash
+cat >/dev/null
+printf 'AGY-STUB-REVIEW\n[LOW] agy stub nit\n'
+"""
+
 
 class PanelExecTest(unittest.TestCase):
     def setUp(self):
@@ -129,9 +134,13 @@ class PanelExecTest(unittest.TestCase):
         self._stub("codex", CODEX_STUB)
         self._stub("claude", CLAUDE_STUB)
         self._stub("grok", GROK_STUB)
+        self._stub("agy", AGY_STUB)
         grok_home = Path(self.tmp) / ".grok"
         grok_home.mkdir()
         (grok_home / "auth.json").write_text("{}")
+        agy_home = Path(self.tmp) / ".gemini"
+        agy_home.mkdir()
+        (agy_home / "jetski-standalone-oauth-token").write_text("{}")
         self.artifact = Path(self.tmp) / "artifact.txt"
         self.artifact.write_text("diff --git a/tracked.txt b/tracked.txt\n-v1\n+v2\n")
         self.repo = Path(self.tmp) / "repo"
@@ -163,8 +172,11 @@ class PanelExecTest(unittest.TestCase):
         e = dict(os.environ)
         e["PATH"] = f"{self.bin}:/usr/bin:/bin"
         e["HOME"] = self.tmp
-        for var in ("ASSESS_PANEL_GROK", "ASSESS_PANEL_PI", "ASSESS_PANEL_EXEC", "GROK_HOME",
-                    "XAI_API_KEY", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy",
+        for var in ("ASSESS_PANEL_GROK", "ASSESS_PANEL_AGY", "ASSESS_PANEL_PI",
+                    "ASSESS_PANEL_EXEC", "GROK_HOME", "AGY_HOME",
+                    "XAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+                    "JETSKI_OAUTH_TOKEN", "AGY_LLM_GATEWAY_API_KEY",
+                    "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy",
                     "ASSESS_PANEL_LOG", "CLAUDE_STUB_CANARY", "GIT_DIR", "GIT_WORK_TREE"):
             e.pop(var, None)
         e.setdefault("ASSESS_PANEL_LOG", "off")
@@ -448,6 +460,7 @@ class PanelExecTest(unittest.TestCase):
         self.assertIs(True, rec["reviewers"]["codex"]["exec"])
         self.assertIs(True, rec["reviewers"]["claude"]["exec"])
         self.assertNotIn("exec", rec["reviewers"]["grok"])
+        self.assertNotIn("exec", rec["reviewers"]["agy"])
         self.assertEqual(1, rec["reviewers"]["codex"]["untested"])
         self.assertEqual(0, rec["reviewers"]["claude"]["untested"])
 

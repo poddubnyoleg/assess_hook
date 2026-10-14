@@ -137,11 +137,12 @@ class PanelPiTest(unittest.TestCase):
         e.pop("ASSESS_PANEL_PI", None)
         e.pop("OPENROUTER_API_KEY", None)
         # This file pins pi's gating against the codex+claude baseline it was written
-        # for. The grok reviewer is default-ON and has its own suite
-        # (test_panel_grok.py), so it is explicitly OFF here — otherwise every test
-        # would also carry a loud grok skip ("not on PATH") these assertions never
-        # account for, and the two/three-reviewer footer wordings would shift.
+        # for. The grok and agy reviewers are default-ON and have their own suites
+        # (test_panel_grok.py, test_panel_agy.py), so they are explicitly OFF here —
+        # otherwise every test would also carry loud skips ("not on PATH") these
+        # assertions never account for, and the two/three-reviewer footer wordings would shift.
         e["ASSESS_PANEL_GROK"] = "0"
+        e["ASSESS_PANEL_AGY"] = "0"
         # The network preflight fires only when an egress proxy is configured. The suite
         # runs inside a sandbox that sets these, so leaving them in place would have every
         # unrelated test making real CONNECT probes — slow, flaky, and dependent on whose

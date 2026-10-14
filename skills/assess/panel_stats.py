@@ -9,7 +9,7 @@ happens in the caller's session, after the panel has exited. This script closes
 the loop:
 
   verdict <run-id>   Append the caller's reconciliation: one entry per finding,
-                     naming every voice that raised it (codex/claude/grok/pi/self)
+                     naming every voice that raised it (codex/claude/grok/agy/pi/self)
                      and whether it survived checking. Reads JSON on stdin;
                      `verdict --schema` prints the exact shape. Re-logging the
                      same run id replaces the earlier verdicts (last wins), so
@@ -37,7 +37,7 @@ import statistics
 import sys
 import time
 
-REVIEWERS = ("codex", "claude", "grok", "pi")
+REVIEWERS = ("codex", "claude", "grok", "agy", "pi")
 SOURCES = REVIEWERS + ("self",)
 VERDICTS = ("confirmed", "refuted", "unverifiable")
 SEVERITIES = ("HIGH", "MED", "LOW")
@@ -54,7 +54,7 @@ Reads on stdin: {"findings": [<finding>, ...], "self_clean": <bool, optional>}
               name it, don't paste the artifact into the log)
   "sources":  ["codex"]                                           REQUIRED
               every voice that INDEPENDENTLY raised it, from:
-              codex | claude | grok | pi | self
+              codex | claude | grok | agy | pi | self
               ("self" is the session's own self-review; a finding
                only the session raised is ["self"]. A reviewer is
                creditable if its review text existed — including

@@ -1,11 +1,11 @@
 ---
 name: panel
-description: TRIGGER — ONLY when the user explicitly asks for the panel, by typing /panel or saying it in their own words ("ask the panel", "consult the panel", "get a second opinion from the panel", "have the panel ideate on this", "scope this request"). NEVER invoke it on your own judgement, however ambiguous the request or stuck the work — the user chooses when to spend the panel, and an unrequested run costs minutes and several xhigh calls they did not ask for. When invoked it runs a cross-model panel (Codex + a fresh Claude + Grok) on whatever the moment holds, and YOU pick the moment from the state of the session rather than asking. Before work has started the object is the REQUEST — what it leaves ambiguous, before effort is spent on the wrong reading. Once work is underway the object is the live PROBLEM — an impasse, an analysis that will not reconcile, an open question — and the answer is a menu of ways forward. Domain-neutral. It reviews nothing — when what the user is pointing at is finished work, `/assess turbo` is the right one and you route there in a line rather than asking them; the after-work review still runs when the task finishes either way.
+description: TRIGGER — ONLY when the user explicitly asks for the panel, by typing /panel or saying it in their own words ("ask the panel", "consult the panel", "get a second opinion from the panel", "have the panel ideate on this", "scope this request"). NEVER invoke it on your own judgement, however ambiguous the request or stuck the work — the user chooses when to spend the panel, and an unrequested run costs minutes and several xhigh calls they did not ask for. When invoked it runs a cross-model panel (Codex + a fresh Claude + Grok + Antigravity) on whatever the moment holds, and YOU pick the moment from the state of the session rather than asking. Before work has started the object is the REQUEST — what it leaves ambiguous, before effort is spent on the wrong reading. Once work is underway the object is the live PROBLEM — an impasse, an analysis that will not reconcile, an open question — and the answer is a menu of ways forward. Domain-neutral. It reviews nothing — when what the user is pointing at is finished work, `/assess turbo` is the right one and you route there in a line rather than asking them; the after-work review still runs when the task finishes either way.
 ---
 
 ## What this is
 
-The panel — Codex, a fresh un-primed Claude, Grok, optionally pi — run on demand, on
+The panel — Codex, a fresh un-primed Claude, Grok, Antigravity (`agy`), optionally pi — run on demand, on
 whatever the session is holding right now. `/assess turbo` is the third moment and stays
 separate because the hook triggers it when a turn ends; this is the one a person calls by
 hand — and it hands off to `/assess turbo` when what they are pointing at is finished work.
@@ -103,14 +103,14 @@ union:
   the exception above — there the frame has not failed, and the thinking is context, not
   contamination.)
 
-**Both panels: no secrets, ever.** The packet travels verbatim to three external providers.
+**Both panels: no secrets, ever.** The packet travels verbatim to four external providers.
 No `env` dumps, no `.env` or credential files, no auth headers or connection strings; name
 the variable and redact the value (`DB_URL=[redacted]`), and scan captured output for
 token-shaped runs before including it. Everywhere else this repo isolates provider keys per
 reviewer; one pasted environment undoes that in a single step. (Data itself — including
 personal or medical records the user is analyzing — is not restricted: the user has chosen
 to trust the panel's providers with the problem, and the data is the problem. That trust is
-**uniform across seats** — Codex, the fresh Claude, and Grok all get the same packet; a
+**uniform across seats** — Codex, the fresh Claude, Grok, and Antigravity all get the same packet; a
 privacy rule that would exclude one of them excludes the whole panel, so never drop a
 single seat on privacy grounds.)
 
@@ -167,6 +167,7 @@ question, each extra reviewer would cost another call for no additional voice:
 | Codex | a six-slot interpretation schema — deliverable, underlying question, assumptions, out of scope, done condition, most likely failure | experiment cards — distinct hypotheses, each with a disconfirmer and the cheapest discriminating probe, ranked by information per cost |
 | fresh Claude | assumptions, then a pre-mortem — wrong question, already done, tractability, hidden cost, misreading risk | the shared assumption of the failed attempts, attacked; on an open problem, the framing instead |
 | Grok *(default on; `ASSESS_PANEL_GROK=0` disables)* | the request's extent — minimal and maximal reading, where a worker's default lands, the stopping rule, the spillover | lateral moves from outside the current approach, grounded in what the directory contains |
+| Antigravity (`agy`) *(default on; `ASSESS_PANEL_AGY=0` disables)* | invariants & coupling — invariants that must hold, blast radius, implicit interface, edge & degradation cases, verification gap | boundary & inversion probes — nearest contrast case, exact fault line where the invariant breaks, minimal reducer |
 | pi *(opt-in, `ASSESS_PANEL_PI=1`)* | the competing readings, and the single question that discriminates between them | the mundane causes a clever search skips — stale state, wrong branch or dataset, a filter that never took effect, join fan-out, units |
 | **shared slot** | **ASSUMPTIONS**, answered first — the only cross-lineage comparison available | **FIRST MOVE**, answered last — a first move is a conclusion, worthless un-grounded |
 
@@ -210,7 +211,7 @@ substitute another run's id.** Verdicts answer the moment's own question:
   approach; `refuted` = tried it, dead end; `unverifiable` = untested. Log the dead ends —
   they are the precision signal.
 
-`sources` names who raised it (`codex`, `claude`, `grok`, `pi`, or `self` for your own).
+`sources` names who raised it (`codex`, `claude`, `grok`, `agy`, `pi`, or `self` for your own).
 Optional fields take **only** their literal values — `severity`: `HIGH`/`MED`/`LOW`;
 `action`: `fixed`/`deferred`/`dismissed`/`none` — a synonym fails the whole call; omit the
 key when none fits. One call with everything; a second call for the same run replaces the

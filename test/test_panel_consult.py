@@ -64,6 +64,11 @@ for a in "$@"; do [ "$prev" = "--prompt-file" ] && pf="$a"; prev="$a"; done
 printf 'GROK-STUB-REVIEW\\n'
 """
 
+AGY_STUB = """#!/usr/bin/env bash
+cat >"${AGY_PROMPT_COPY:-/dev/null}"
+printf 'AGY-STUB-REVIEW\\n'
+"""
+
 
 class PanelConsultTest(unittest.TestCase):
     def setUp(self):
@@ -73,6 +78,7 @@ class PanelConsultTest(unittest.TestCase):
         self._stub("codex", CODEX_STUB)
         self._stub("claude", CLAUDE_STUB)
         self._stub("grok", GROK_STUB)
+        self._stub("agy", AGY_STUB)
         self.artifact = Path(self.tmp) / "evidence.txt"
         self.artifact.write_text(
             "$ pytest test_x.py\nFAILED test_x.py::test_parse - IndexError\n"
@@ -80,8 +86,11 @@ class PanelConsultTest(unittest.TestCase):
         self.grok_home = Path(self.tmp) / ".grok"
         self.grok_home.mkdir()
         (self.grok_home / "auth.json").write_text("{}")
+        self.agy_home = Path(self.tmp) / ".gemini"
+        self.agy_home.mkdir()
+        (self.agy_home / "jetski-standalone-oauth-token").write_text("{}")
         self.prompts = {n: Path(self.tmp) / f"{n}_prompt.txt"
-                        for n in ("codex", "claude", "grok")}
+                        for n in ("codex", "claude", "grok", "agy")}
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -96,13 +105,16 @@ class PanelConsultTest(unittest.TestCase):
         e = dict(os.environ)
         e["PATH"] = f"{self.bin}:/usr/bin:/bin"
         e["HOME"] = self.tmp
-        for var in ("ASSESS_PANEL_GROK", "ASSESS_PANEL_PI", "GROK_HOME",
-                    "XAI_API_KEY", "ASSESS_PANEL_LOG", "ASSESS_PANEL_MODE",
+        for var in ("ASSESS_PANEL_GROK", "ASSESS_PANEL_AGY", "ASSESS_PANEL_PI",
+                    "GROK_HOME", "AGY_HOME", "XAI_API_KEY", "GEMINI_API_KEY",
+                    "GOOGLE_API_KEY", "JETSKI_OAUTH_TOKEN", "AGY_LLM_GATEWAY_API_KEY",
+                    "ASSESS_PANEL_LOG", "ASSESS_PANEL_MODE",
                     "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
             e.pop(var, None)
         e["CODEX_PROMPT_COPY"] = str(self.prompts["codex"])
         e["CLAUDE_PROMPT_COPY"] = str(self.prompts["claude"])
         e["GROK_PROMPT_COPY"] = str(self.prompts["grok"])
+        e["AGY_PROMPT_COPY"] = str(self.prompts["agy"])
         e.update(env or {})
         cmd = ["bash", str(PANEL), "--mode", "consult", str(self.artifact), *args]
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=e,
@@ -145,12 +157,19 @@ class PanelConsultTest(unittest.TestCase):
         self.assertIn("EXPERIMENT CARDS", texts["codex"])
         self.assertNotIn("EXPERIMENT CARDS", texts["claude"])
         self.assertNotIn("EXPERIMENT CARDS", texts["grok"])
+        self.assertNotIn("EXPERIMENT CARDS", texts["agy"])
         self.assertIn("SHARED ASSUMPTION", texts["claude"])
         self.assertNotIn("SHARED ASSUMPTION", texts["codex"])
         self.assertNotIn("SHARED ASSUMPTION", texts["grok"])
+        self.assertNotIn("SHARED ASSUMPTION", texts["agy"])
         self.assertIn("LATERAL MOVES", texts["grok"])
         self.assertNotIn("LATERAL MOVES", texts["codex"])
         self.assertNotIn("LATERAL MOVES", texts["claude"])
+        self.assertNotIn("LATERAL MOVES", texts["agy"])
+        self.assertIn("BOUNDARY & INVERSION PROBES", texts["agy"])
+        self.assertNotIn("BOUNDARY & INVERSION PROBES", texts["codex"])
+        self.assertNotIn("BOUNDARY & INVERSION PROBES", texts["claude"])
+        self.assertNotIn("BOUNDARY & INVERSION PROBES", texts["grok"])
         # And none of them is the review or scope prompt by accident.
         for n, t in texts.items():
             self.assertNotIn("skeptical senior reviewer", t, n)
@@ -172,13 +191,14 @@ class PanelConsultTest(unittest.TestCase):
         # Not the sibling modes' footers.
         self.assertNotIn("Reconcile by UNION", r.stdout)
         self.assertNotIn("Reconcile by axis", r.stdout)
-        # Three reviewers answered, so the comparison wording — not the one-voice one.
+        # Four reviewers answered, so the comparison wording — not the one-voice one.
         self.assertIn("compare those first", r.stdout)
         self.assertNotIn("single outside opinion", r.stdout)
 
     def test_single_voice_menu_says_there_is_nothing_to_compare(self):
         self._stub("codex", CODEX_STUB_FAIL)
-        r = self.run_panel("the parse test fails", env={"ASSESS_PANEL_GROK": "0"})
+        r = self.run_panel("the parse test fails",
+                           env={"ASSESS_PANEL_GROK": "0", "ASSESS_PANEL_AGY": "0"})
         # Only the fresh Claude delivered: no cross-lineage voice at all, so the
         # shared no-decorrelation banner outranks the menu footer entirely.
         self.assertIn("NO CROSS-LINEAGE REVIEW HAPPENED", r.stdout)
@@ -189,12 +209,13 @@ class PanelConsultTest(unittest.TestCase):
         r = self.run_panel("the parse test fails")
         self.assertIn(">>> FAILED", r.stdout)
         self.assertIn("GROK-STUB-REVIEW", r.stdout)
+        self.assertIn("AGY-STUB-REVIEW", r.stdout)
         self.assertIn("Reconcile as a MENU", r.stdout)
         self.assertIn("NARROWER", r.stdout)
 
     def test_shared_assumption_advice_needs_the_claude_slot_delivered(self):
         # The SHARED ASSUMPTION heading belongs to the fresh Claude alone. With
-        # Claude dead the menu still prints (codex+grok are foreign voices), but
+        # Claude dead the menu still prints (codex+grok+agy are foreign voices), but
         # ranking advice about a section no reviewer produced would send the
         # caller hunting for it — or read its absence as "no shared assumption
         # found", the dead-reviewer-as-agreement failure.
@@ -219,6 +240,7 @@ class PanelConsultTest(unittest.TestCase):
         self.assertEqual(rec["reviewers"]["codex"]["status"], "ok")
         self.assertEqual(rec["reviewers"]["claude"]["status"], "ok")
         self.assertEqual(rec["reviewers"]["grok"]["status"], "ok")
+        self.assertEqual(rec["reviewers"]["agy"]["status"], "ok")
         # Severity tallies are review-mode-only: consult output carries no tags,
         # and zeros here would read as "reviewed and found nothing".
         self.assertNotIn("high", rec["reviewers"]["codex"])

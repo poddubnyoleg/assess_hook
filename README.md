@@ -15,8 +15,9 @@ Add reviewers that **fail differently** from the working agent, so their mistake
 
 - a **different model** — OpenAI's Codex — whose different training catches model-systematic errors;
 - a **fresh instance of the same model** with a clean context, which, never having seen the session's reasoning, catches anchoring and wrong-problem errors;
-- a **third lineage** — xAI's Grok — on by default, because it needs only its own CLI and a login; when the machine lacks them the panel says so loudly and runs with the rest; and
-- optionally a **fourth** — Moonshot's Kimi via the [`pi`](https://pi.dev) agent — off unless you turn it on, because it needs a binary and a provider key this repo can't assume you have.
+- a **third lineage** — xAI's Grok — on by default, because it needs only its own CLI and a login; when the machine lacks them the panel says so loudly and runs with the rest;
+- a **fourth lineage** — Google's Gemini via the Antigravity (`agy`) CLI — also on by default, running read-only in plan mode against a throwaway home; and
+- optionally a **fifth** — Moonshot's Kimi via the [`pi`](https://pi.dev) agent — off unless you turn it on, because it needs a binary and a provider key this repo can't assume you have.
 
 The point is not "a smarter reviewer." It's **decorrelation**: checkers whose errors are independent of the author's. The chance all of them miss the same bug is far lower than any one alone. Notably this holds *even if the reviewers are no more capable* than the working agent — independence, not capability, is what buys the catch.
 
@@ -47,7 +48,8 @@ A cheap classifier (Claude Sonnet, low effort) decides the level on every Stop. 
 - **Codex** — `gpt-6-astra` at `xhigh` effort; a different model lineage. Runs **with exec** in its own scratch copy of the project (`--sandbox workspace-write`).
 - **Fresh Claude** — a clean `claude -p` context, no MCP. **With exec**: Bash in its own scratch copy, fenced by Claude Code's sandbox, plus edits scoped to that copy; otherwise read-only tools (`Read`/`Grep`/`Glob`).
 - **Grok** *(on by default; `ASSESS_PANEL_GROK=0` disables)* — `grok-4.6` at `xhigh`, its top tier; a third lineage. See [the Grok reviewer](#the-grok-reviewer-on-by-default).
-- **Pi** *(optional, `ASSESS_PANEL_PI=1`)* — `moonshotai/kimi-k3` at `high` via OpenRouter; a fourth lineage. See [the fourth reviewer](#the-fourth-reviewer-optional).
+- **Antigravity (`agy`)** *(on by default; `ASSESS_PANEL_AGY=0` disables)* — `gemini-4-argon` at `high`; a fourth lineage (Google Gemini). See [the Antigravity reviewer](#the-antigravity-reviewer-on-by-default).
+- **Pi** *(optional, `ASSESS_PANEL_PI=1`)* — `moonshotai/kimi-k3` at `high` via OpenRouter; a fifth lineage. See [the fifth reviewer](#the-fifth-reviewer-optional).
 
 All are told to **find problems, not to praise**, and to judge independently. None sees the others' output or any prior review, so their errors stay decorrelated. The reviewer prompt is fixed inside the script (it's a guard — not something the orchestrator rewrites per call), and the *task* handed to them is the original request verbatim, never the agent's summary of what it did (a paraphrase would re-anchor them).
 
@@ -61,7 +63,7 @@ Decorrelating the reviewers fixes *whose* blind spots get checked. It does not f
 
 **The canary.** Claude Code's sandbox **fails open**: if it cannot initialize — typically because the panel itself was run inside another sandbox — the first Bash call errors and every later one runs unconfined. So before the fresh Claude's seat is granted, a cheap `claude -p` (haiku) with the same settings runs one command that tries to write a file into the real tree and one into the real `.git`, then echoes a nonce it must read from disk. The seat is granted only when the nonce came back (it is not in the prompt, so an error message quoting the command, or an answer composed without running it, cannot carry it), no write was reported, neither file exists afterwards, and the exit status is zero. Anything else falls the seat back to read-only and says so in its section. Structural, not hortatory: the reviewer is never asked to check its own fence.
 
-**Who does not get it, and why.** Grok stays read-only on purpose: it is the slowest and least reliable seat (median 449s, a third of its runs lost to failures and timeouts), its value is a third lineage's *judgement*, and facts from execution do not need three lineages to establish — a failing test fails for everyone. Pi, the opt-in fourth, likewise. Scope and consult modes stay read-only entirely: nothing is built at t=0, and mid-task the consultants propose while the session executes.
+**Who does not get it, and why.** Grok stays read-only on purpose: it is the slowest and least reliable seat (median 449s, a third of its runs lost to failures and timeouts), its value is a third lineage's *judgement*, and facts from execution do not need three lineages to establish — a failing test fails for everyone. Antigravity (`agy`) and Pi, the opt-in fifth, likewise stay read-only (`agy` runs in plan mode with `--sandbox`; its headless print mode cannot approve a write tool, and the sandbox refuses shell writes into the workspace). Scope and consult modes stay read-only entirely: nothing is built at t=0, and mid-task the consultants propose while the session executes.
 
 **Degrades loudly, per seat.** No `git`, a root outside a repository, a repository with no commits, untracked files over the size cap, a worktree that will not build, a canary that did not prove the fence — each prints a `>>> NOTE` naming the cause (once for the run, or inside the affected seat's section) and that seat runs read-only, its findings to be read as argued rather than shown. `ASSESS_PANEL_EXEC=0` is the only silent state.
 
@@ -84,7 +86,7 @@ Not by majority vote — the working agent and the fresh Claude are the same mod
 - **`[UNTESTED]`** → a lead, not a finding: no severity, no vote; test it yourself, then log it like any other;
 - **all agree it's fine** → high confidence, move on.
 
-A 2-1 split is especially not a vote: the working agent and the fresh Claude agreeing against Codex, Grok, or Pi is *one* lineage, not two.
+A 2-1 split is especially not a vote: the working agent and the fresh Claude agreeing against Codex, Grok, Antigravity, or Pi is *one* lineage, not two.
 
 ## The panel on demand: `/panel`
 
@@ -99,6 +101,7 @@ The question has to change from turbo's. After the work there is an artifact, so
 - **Codex** answers a fixed six-slot schema — deliverable, underlying question, assumptions, out of scope, done condition, most likely failure.
 - **Fresh Claude** answers **assumptions** first, then runs a **pre-mortem** — wrong question, already done, tractability, hidden cost, misreading risk.
 - **Grok** answers **assumptions** first, then bounds the request's **extent** — the minimal and the maximal reading of the same words, where a competent worker's default lands between them and in which direction that misses, the stopping rule, and the spillover (adjacent things touched but not named). Distinct from Pi's lens: different *readings* lead to different work, while minimal/maximal bound the same reading's size.
+- **Antigravity (`agy`)** answers **assumptions** first, then examines **invariants & coupling** — existing invariants that must hold, blast radius, implicit interface, edge & degradation cases, and the verification gap.
 - **Pi** *(when enabled)* answers **assumptions** first, then enumerates the **competing readings** — every reading that would lead to different work, the single question that would discriminate between them, how far apart they are, and what evidence favours one.
 
 Different lenses on purpose. After the work, a fresh Claude earns its slot by being un-anchored from a session that has convinced itself; at t=0 there is no such anchor, so an identical prompt would make it a second copy of the working agent's own reading. The same argument applies to every added reviewer: asked the same question, each would cost another call for no additional voice.
@@ -118,9 +121,10 @@ Lenses are distinct here too, and for the same reason — "what would you try?" 
 - **Codex** — **experiment cards**: 2–4 mutually distinct hypotheses, each with a disconfirmer, the cheapest probe that separates it from the others (a command, a query, a calculation, a source to check), and the result it predicts either way — so an outcome cannot be reinterpreted after the fact. Ranked by information per cost, not confidence.
 - **Fresh Claude** — the **shared assumption**: treat the failed *attempts*, not the problem, as the object of study; infer the assumption they all share that the request does not require, and attack it. The one question the working model cannot ask itself — it is inside the frame — and therefore the slot where a clean context earns the most. An assumption must quote the attempts that embody it, or be labelled a guess. On an open problem with no attempts, the lens shifts to the **framing**: the assumption embedded in how the question is posed that most constrains the answers.
 - **Grok** — **lateral moves**: the space outside the current approach — a different layer, tool, decomposition, data cut or source, an adjacent field's standard method, or the minimal-repro/bisection route that sidesteps theorizing entirely — grounded in what the working directory actually contains.
+- **Antigravity (`agy`)** — **boundary & inversion probes**: the nearest contrast case and what it already rules out, the exact fault line where the expected invariant first breaks, and a minimal reducer or inverted test.
 - **Pi** *(when on)* — the **mundane causes**: stale state or a stale data snapshot, the wrong file/branch/env/dataset actually being exercised, a fix or filter that never took effect, a check or metric asserting something other than it appears to, a join silently duplicating rows, units and timezones — each with the one-line observation that settles it.
 
-All four end with **FIRST MOVE** — the single cheapest next action. It is this moment's counterpart of the before panel's shared assumptions slot: the one place a cross-lineage comparison exists, and convergence there is the strongest signal the run produces. (It comes *last* where the shared slot comes first: an assumption is a reading, answered before the lens can colour it; a first move is a conclusion, worthless un-grounded.)
+All five end with **FIRST MOVE** — the single cheapest next action. It is this moment's counterpart of the before panel's shared assumptions slot: the one place a cross-lineage comparison exists, and convergence there is the strongest signal the run produces. (It comes *last* where the shared slot comes first: an assumption is a reading, answered before the lens can colour it; a first move is a conclusion, worthless un-grounded.)
 
 Aggregation is the easiest of the three: a **menu**. There is a live problem to test suggestions against, divergent suggestions are breadth rather than disagreement, and the run succeeds if any one unblocks. One reconciliation rule is binding: **run at least one proposed probe before the next speculative fix** — a stuck frame that reads the menu, nods, and resumes its own loop has spent the panel on nothing.
 
@@ -200,10 +204,49 @@ The egress preflight covers it like the others: a grok.com login authenticates a
 `cli-chat-proxy.grok.com`, an API key against `api.x.ai`, and a refused CONNECT tunnel to
 whichever applies becomes an immediate skip naming the host.
 
-## The fourth reviewer (optional)
+## The Antigravity reviewer (on by default)
 
-Codex, a fresh Claude and Grok are three lineages. A fourth — [`pi`](https://pi.dev) driving
-`moonshotai/kimi-k3` over OpenRouter — adds another, in both modes. It is **off by default
+The fourth lineage — Google's `gemini-4-argon` via the Antigravity (`agy`) CLI — is **on by
+default**, because it needs only the `agy` CLI and its sign-in (run `agy` once and log in
+interactively — there is no `agy auth` subcommand — or export `GEMINI_API_KEY` /
+`GOOGLE_API_KEY`). On a machine without them,
+every panel prints an explicit `>>> SKIPPED` naming the cause and continues;
+`ASSESS_PANEL_AGY=0` turns the reviewer off where that is permanent.
+
+| Variable | Default | |
+|---|---|---|
+| `ASSESS_PANEL_AGY` | *(on)* | `0` turns the reviewer off. An unrecognised value is a loud skip, never a guess. |
+| `ASSESS_AGY_MODEL` | `gemini-4-argon` | `claude-*` / `gpt-*` ids are refused with a loud skip: agy can drive those lineages too, but this seat is the Google one. |
+| `ASSESS_AGY_EFFORT` | `high` | Reasoning effort passed via `--effort` (`low`, `medium`, `high`, `xhigh`, `max`). |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | — | Optional; without them `agy` uses its interactive sign-in, kept in the macOS keychain (item `gemini`/`antigravity`, reached through a symlink to `~/Library/Keychains` in the throwaway home) or, where no keychain is reachable, in `~/.gemini/jetski-standalone-oauth-token`. With both present agy prefers the sign-in. **Only the Antigravity reviewer sees them** — they (along with `JETSKI_OAUTH_TOKEN` and `AGY_LLM_GATEWAY_API_KEY`) are stripped from the environment every other reviewer inherits. |
+
+**Read-only and hermetic.** It runs with `agy --mode plan --sandbox --output-format text`
+against a **throwaway `HOME`** — and not with `--disable-slash-commands`: in print mode plan
+mode *is* a slash-command expansion, and that flag switches it off while agy only warns on
+stderr. Three fences keep the real tree untouched, none of them a request to the model: plan
+mode makes it write a plan into its own brain dir instead of editing; headless print mode
+cannot approve a `write_file` tool, so one is soft-denied; and `--sandbox` refuses shell writes
+into the workspace. The throwaway home carries a one-line settings file granting shell
+*commands* inside that sandbox — without it a model that reads a file with `cat` instead of its
+file tool is denied, and the run ends with exit 0 and empty output: a seat that silently says
+nothing. It inherits no user rules (`~/.gemini/GEMINI.md`), custom skills, or MCP servers from
+`~/.gemini/`, and writes its session logs only to the throwaway home. The sign-in travels by
+symlink, never by copy: macOS resolves the login keychain under `$HOME/Library/Keychains`, so the
+throwaway home links to the real one (without that link agy fails with "authentication
+required"), and so does the token file agy falls back to where no keychain is reachable. The
+prompt travels via stdin. agy binds a localhost
+port for its language server, so like the rest of the panel it cannot run inside a Bash sandbox
+that forbids binding.
+
+The egress preflight covers it like the others: a sign-in authenticates against
+`daily-cloudcode-pa.googleapis.com` (and is preferred even when an API key is also set), an API
+key alone against `generativelanguage.googleapis.com`, and a refused CONNECT tunnel to whichever applies becomes
+an immediate skip naming the host.
+
+## The fifth reviewer (optional)
+
+Codex, a fresh Claude, Grok, and Antigravity are four lineages. A fifth — [`pi`](https://pi.dev) driving
+`moonshotai/kimi-k3` over OpenRouter — adds another, in all three modes. It is **off by default
 and opt-in**, because it needs a binary, a provider key, and (for a
 custom model) a machine-local model definition that this repo cannot assume you have:
 
@@ -213,7 +256,7 @@ ASSESS_PANEL_PI=1 bash skills/assess/panel.sh "$ART" "$TASK"
 
 | Variable | Default | |
 |---|---|---|
-| `ASSESS_PANEL_PI` | *(off)* | `1` turns the fourth reviewer on. |
+| `ASSESS_PANEL_PI` | *(off)* | `1` turns the fifth reviewer on. |
 | `ASSESS_PI_MODEL` | `moonshotai/kimi-k3` | Must be a model `pi --list-models` reports on this machine. |
 | `ASSESS_PI_PROVIDER` | `openrouter` | |
 | `ASSESS_PI_EFFORT` | `high` | `xhigh` asks for the model's top tier. pi clamps to what the model actually supports (see below). |
@@ -279,7 +322,7 @@ re-run and pay the same minutes again. **Call `panel.sh` with the sandbox disabl
 Claude Code, a Bash call with `dangerouslyDisableSandbox`), or allowlist the hosts.
 
 `panel.sh` can't fix this from the inside, so it names it. When a proxy is configured, a
-preflight probes each reviewer's endpoint (codex's and grok's are chosen by their auth mode,
+preflight probes each reviewer's endpoint (codex's, grok's, and agy's are chosen by their auth mode,
 pi's comes from the provider's `baseUrl`) and a refused tunnel becomes an immediate `>>> SKIPPED` naming the
 host and status, instead of minutes of retries. Two rules keep the diagnostic from costing
 more than it saves: it discriminates on the **CONNECT** status, never the HTTP status —
@@ -292,7 +335,7 @@ network calls at all;
 `ASSESS_PANEL_NET_PROBE=0` disables it outright, `ASSESS_PANEL_NET_TIMEOUT` (default 8s) bounds
 each probe.
 
-And when the panel ends with no *foreign* lineage having produced a review — codex, grok and
+And when the panel ends with no *foreign* lineage having produced a review — codex, grok, agy and
 pi all skipped, failed or empty — it says so in a banner rather than printing reconciliation advice
 about reviewers that never spoke. A run in which only the fresh Claude answered is the caller's
 own lineage checking its own work; that is a self-check, not a panel, and it has to be reported
@@ -327,7 +370,7 @@ python3 ~/.claude/skills/assess/panel_stats.py verdict <run-id>   # findings JSO
 ```
 
 One entry per reconciled finding: `sources` (every voice that independently raised it —
-`codex`, `claude`, `grok`, `pi`, or `self` for the session's own self-review; only voices that
+`codex`, `claude`, `grok`, `agy`, `pi`, or `self` for the session's own self-review; only voices that
 actually delivered in that run are accepted), the `verdict` (`confirmed` / `refuted` /
 `unverifiable`), and optionally severity and action. Refuted findings matter as much as
 confirmed ones — they are the precision signal — and so do the session's own: a run with
@@ -395,9 +438,10 @@ environment, where an `env` dump will find it.
 - **Claude Code** (`claude` CLI), authenticated.
 - **Codex** (`codex` CLI ≥ 0.153.1), authenticated. Model and effort are pinned to `gpt-6-astra` / `xhigh` (override with `ASSESS_CODEX_MODEL` / `ASSESS_CODEX_EFFORT`).
 - **Grok** (`grok` CLI — `curl -fsSL https://x.ai/cli/install.sh | bash`), authenticated via `grok login` or `XAI_API_KEY`. On by default; without it every panel prints a skip naming the cause (`ASSESS_PANEL_GROK=0` silences that permanently).
+- **Antigravity** (`agy` CLI), signed in once interactively (run `agy`) or given `GEMINI_API_KEY` / `GOOGLE_API_KEY`. On by default; without it every panel prints a skip naming the cause (`ASSESS_PANEL_AGY=0` silences that permanently).
 - macOS or Linux (the hook and `panel.sh` are bash + standard tools).
 - **git**, for the exec seats' scratch copies. Without it, or outside a git repository, Codex and the fresh Claude run read-only and the panel says so.
-- *Optional, only for the fourth reviewer:* **pi** (`npm i -g @mariozechner/pi-coding-agent`), a provider key, and `ripgrep` on PATH (without it the reviewer keeps `read`/`ls` but loses `grep`/`find`, and says so).
+- *Optional, only for the fifth reviewer:* **pi** (`npm i -g @mariozechner/pi-coding-agent`), a provider key, and `ripgrep` on PATH (without it the reviewer keeps `read`/`ls` but loses `grep`/`find`, and says so).
 
 ## Files
 
@@ -407,6 +451,7 @@ environment, where an `env` dump will find it.
 - `skills/assess/panel.sh` — runs the reviewers in parallel. `--mode review` (default) on a finished artifact; `--mode scope` on a request that hasn't been started; `--mode consult` on a stuck state mid-task. Appends one telemetry record per run (see "Measuring the panel").
 - `skills/assess/panel_stats.py` — the other half of the telemetry: `verdict` logs the caller's reconciliation, `report` aggregates per-reviewer reliability and relevance, `runs` lists recent run ids.
 - `test/test_panel_grok.py` — pins the grok reviewer's gating: on by default, loud when unavailable, hermetic and read-only, key isolation, and never rendered as agreement when it dies.
+- `test/test_panel_agy.py` — pins the Antigravity (`agy`) reviewer's gating: on by default, loud when unavailable, hermetic and read-only (plan mode, `--sandbox`, the permission settings in a throwaway home, and never `--disable-slash-commands`), the Google-only model guard, key isolation, and never rendered as agreement when it dies.
 - `test/test_panel_pi.py` — pins the pi reviewer's gating: off by default, loud when enabled-but-unavailable, and never rendered as agreement when it dies.
 - `test/test_panel_log.py` — pins the telemetry: record correctness per outcome, soft-fail logging, no secrets in the log, and the verdict/report loop.
 - `test/test_panel_consult.py` — pins the mid-task (`--mode consult`) panel: the problem statement is required, the lenses stay distinct while FIRST MOVE stays shared, the footer reconciles as a menu, and telemetry records the mode without severity counts.

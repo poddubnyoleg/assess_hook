@@ -102,10 +102,13 @@ class PanelGrokTest(unittest.TestCase):
         e = dict(os.environ)
         e["PATH"] = f"{self.bin}:/usr/bin:/bin"
         e["HOME"] = self.tmp
-        for var in ("ASSESS_PANEL_GROK", "ASSESS_PANEL_PI", "GROK_HOME",
-                    "XAI_API_KEY", "GROK_CLI_CHAT_PROXY_BASE_URL",
+        for var in ("ASSESS_PANEL_GROK", "ASSESS_PANEL_AGY", "ASSESS_PANEL_PI", "GROK_HOME",
+                    "AGY_HOME", "XAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+                    "JETSKI_OAUTH_TOKEN", "AGY_LLM_GATEWAY_API_KEY",
+                    "GROK_CLI_CHAT_PROXY_BASE_URL",
                     "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
             e.pop(var, None)
+        e["ASSESS_PANEL_AGY"] = "0"
         e.update(env or {})
         cmd = ["bash", str(PANEL), "--mode", mode, str(self.artifact), *args]
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=e,

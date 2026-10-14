@@ -46,6 +46,11 @@ GROK_STUB = """#!/usr/bin/env bash
 printf '[HIGH] grok finding\\n[LOW] grok nit\\n'
 """
 
+AGY_STUB = """#!/usr/bin/env bash
+cat >/dev/null
+printf '[MED] agy finding\\n'
+"""
+
 PI_STUB = """#!/usr/bin/env bash
 for a in "$@"; do
   if [ "$a" = "--list-models" ]; then printf 'openrouter  %s  1.0M\\n' "${!#}" >&2; exit 0; fi
@@ -63,16 +68,20 @@ class PanelLogTest(unittest.TestCase):
         self._stub("codex", CODEX_STUB)
         self._stub("claude", CLAUDE_STUB)
         self._stub("grok", GROK_STUB)
+        self._stub("agy", AGY_STUB)
         self.artifact = Path(self.tmp) / "artifact.txt"
         self.artifact.write_text("diff --git a/x.py b/x.py\n+print('hi')\n")
         self.log = Path(self.tmp) / "log.jsonl"
         self.agent_dir = Path(self.tmp) / "pi-agent-src"
         self.agent_dir.mkdir()
-        # grok is default-ON and preflights a credential; HOME points at self.tmp, so
-        # this auth.json is what lets the stubbed grok pass that gate.
+        # grok and agy are default-ON and preflight a credential; HOME points at self.tmp,
+        # so these auth.json files let the stubbed reviewers pass that gate.
         grok_home = Path(self.tmp) / ".grok"
         grok_home.mkdir()
         (grok_home / "auth.json").write_text("{}")
+        agy_home = Path(self.tmp) / ".gemini"
+        agy_home.mkdir()
+        (agy_home / "jetski-standalone-oauth-token").write_text("{}")
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -93,6 +102,12 @@ class PanelLogTest(unittest.TestCase):
         e.pop("ASSESS_PANEL_GROK", None)
         e.pop("XAI_API_KEY", None)
         e.pop("GROK_HOME", None)
+        e.pop("ASSESS_PANEL_AGY", None)
+        e.pop("GEMINI_API_KEY", None)
+        e.pop("GOOGLE_API_KEY", None)
+        e.pop("JETSKI_OAUTH_TOKEN", None)
+        e.pop("AGY_LLM_GATEWAY_API_KEY", None)
+        e.pop("AGY_HOME", None)
         for var in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
             e.pop(var, None)
         e.update(env or {})
@@ -130,10 +145,13 @@ class PanelLogTest(unittest.TestCase):
         claude = rec["reviewers"]["claude"]
         self.assertEqual("ok", claude["status"])
         self.assertEqual((0, 0, 1), (claude["high"], claude["med"], claude["low"]))
-        # grok is default-ON, so it must be in the record without any env asked for it.
+        # grok and agy are default-ON, so they must be in the record without any env asked for them.
         grok = rec["reviewers"]["grok"]
         self.assertEqual("ok", grok["status"])
         self.assertEqual((1, 0, 1), (grok["high"], grok["med"], grok["low"]))
+        agy = rec["reviewers"]["agy"]
+        self.assertEqual("ok", agy["status"])
+        self.assertEqual((0, 1, 0), (agy["high"], agy["med"], agy["low"]))
         # pi off => absent from the record entirely: absence IS the off state.
         self.assertNotIn("pi", rec["reviewers"])
         # The footer names the id so the caller can attach verdicts to this run.
@@ -177,6 +195,17 @@ class PanelLogTest(unittest.TestCase):
         self.assertEqual("skipped", grok["status"])
         self.assertIn("not on PATH", grok["skip"])
 
+    def test_agy_off_is_absent_from_the_record(self):
+        self.run_panel("some task", env={"ASSESS_PANEL_AGY": "0"})
+        self.assertNotIn("agy", self.records()[0]["reviewers"])
+
+    def test_agy_missing_binary_is_recorded_skipped(self):
+        (self.bin / "agy").unlink()
+        self.run_panel("some task")
+        agy = self.records()[0]["reviewers"]["agy"]
+        self.assertEqual("skipped", agy["status"])
+        self.assertIn("not on PATH", agy["skip"])
+
     def test_empty_output_is_not_ok(self):
         self._stub("claude", "#!/usr/bin/env bash\ncat >/dev/null\nexit 0\n")
         self.run_panel("some task")
@@ -211,7 +240,9 @@ class PanelLogTest(unittest.TestCase):
         e = dict(os.environ, PATH=f"{self.bin}:/usr/bin:/bin", HOME=self.tmp)
         for var in ("ASSESS_PANEL_LOG", "HTTPS_PROXY", "https_proxy",
                     "ALL_PROXY", "all_proxy", "ASSESS_PANEL_PI",
-                    "ASSESS_PANEL_GROK", "GROK_HOME", "XAI_API_KEY"):
+                    "ASSESS_PANEL_GROK", "GROK_HOME", "XAI_API_KEY",
+                    "ASSESS_PANEL_AGY", "AGY_HOME", "GEMINI_API_KEY",
+                    "GOOGLE_API_KEY", "JETSKI_OAUTH_TOKEN", "AGY_LLM_GATEWAY_API_KEY"):
             e.pop(var, None)
         subprocess.run(["bash", str(PANEL), str(self.artifact), "task"],
                        capture_output=True, text=True, timeout=120, env=e, cwd=self.tmp)
@@ -242,10 +273,12 @@ class PanelLogTest(unittest.TestCase):
         self.run_panel("task text with a $secret inside",
                        env={"ASSESS_PANEL_PI": "1",
                             "OPENROUTER_API_KEY": "sk-or-verysecret",
-                            "XAI_API_KEY": "xai-alsoverysecret"})
+                            "XAI_API_KEY": "xai-alsoverysecret",
+                            "GEMINI_API_KEY": "AIza-verysecret"})
         raw = self.log.read_text()
         self.assertNotIn("sk-or-verysecret", raw)
         self.assertNotIn("xai-alsoverysecret", raw)
+        self.assertNotIn("AIza-verysecret", raw)
         self.assertNotIn("task text with", raw)          # task never logged
         self.assertNotIn("print('hi')", raw)             # artifact never logged
 

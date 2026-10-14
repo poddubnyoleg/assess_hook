@@ -54,13 +54,14 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
    default exists for. Only if backgrounding is unavailable, run it in the foreground
    without `ASSESS_PANEL_TIMEOUT` and with the Bash `timeout` at its maximum.
    This runs Codex (a different model), a fresh Claude (clean context, no anchoring),
-   and Grok (xAI's grok-4.6 — a third lineage, **on by default**), in parallel, each told
+   Grok (xAI's grok-4.6 — a third lineage, **on by default**), and Antigravity (`agy`,
+   Google's `gemini-4-argon` — a fourth lineage, **on by default**), in parallel, each told
    to refute — not approve. **Codex and the fresh Claude can EXECUTE**: each works in its
    own throwaway scratch copy of the project (a clone with your uncommitted change
    applied and untracked files copied in, no remote), fenced by its CLI's sandbox,
    network closed, and is told to build one reproduction from the task's own sentence,
-   try a fix, and run the project's tests only when cheap. Grok (and pi) stay read-only
-   by design. **Every finding, from every seat,
+   try a fix, and run the project's tests only when cheap. Grok, Antigravity, and pi stay
+   read-only by design. **Every finding, from every seat,
    must carry `CHECKED` (what was run or read) and `FOUND` (what it showed, quoted), or be
    tagged `[UNTESTED]` instead of a severity.**
 
@@ -75,7 +76,7 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
 
    - **Grok** needs the `grok` CLI authenticated (`grok login`); when it can't run, the
      panel prints `>>> SKIPPED` with the reason and continues with the rest. It is trusted
-     with the artifact **exactly as Codex and the fresh Claude are** — all three are
+     with the artifact **exactly as Codex, the fresh Claude, and Antigravity are** — all four are
      external providers, and a privacy or data-sensitivity rule either excludes the whole
      panel or none of it; never disable one seat on privacy grounds the others don't face.
      Disable it (a missing CLI, an explicit user choice — not a privacy inference) with
@@ -83,7 +84,13 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
      (default `grok-4.6` at `xhigh`, its top tier — the CLI rejects a level the model
      doesn't support rather than clamping, so a bad value fails fast and loud).
 
-   - An optional **fourth lineage** (pi driving Kimi K3) is available with
+   - **Antigravity (`agy`)** needs the `agy` CLI signed in (run `agy` once and log in
+     interactively; or `GEMINI_API_KEY` / `GOOGLE_API_KEY`); when it can't run, the panel prints `>>> SKIPPED`
+     with the reason and continues with the rest. Disable it with `ASSESS_PANEL_AGY=0`;
+     override with `ASSESS_AGY_MODEL` / `ASSESS_AGY_EFFORT` (default `gemini-4-argon` at
+     `high`).
+
+   - An optional **fifth lineage** (pi driving Kimi K3) is available with
      `ASSESS_PANEL_PI=1` prefixed to the command. It is off by default because it needs a
      binary and a provider key that may not exist on this machine; when it can't run it
      prints `>>> SKIPPED` with the reason and the panel continues without it. Turn it on when
@@ -157,7 +164,7 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
    JSON
    ```
    - `sources` = every voice that **independently** raised it: `codex`, `claude`, `grok`,
-     `pi`, and `self` for your own step-1 self-review (a finding only you raised is
+     `agy`, `pi`, and `self` for your own step-1 self-review (a finding only you raised is
      `["self"]`). A reviewer is creditable if its review text existed in this run —
      including partial output printed before a timeout or crash.
    - `verdict`: `confirmed` (checked against the work, real), `refuted` (checked, wrong),
@@ -187,7 +194,10 @@ Why the extra reviewers, and why they are not redundant:
   on any model's priors, which is the one thing a change of lineage cannot buy.
 - **Grok** is a third lineage, on by default → the same argument as Codex, again, against
   a model trained by neither Anthropic nor OpenAI.
-- **Pi/Kimi** (optional) is a fourth lineage → the argument once more, at extra cost,
+- **Antigravity (`agy`)** is a fourth lineage (Google Gemini), on by default → another
+  independent training lineage, running read-only: plan mode, a headless print mode
+  that cannot approve writes, and agy's own sandbox.
+- **Pi/Kimi** (optional) is a fifth lineage → the argument once more, at extra cost,
   for artifacts worth it.
 
 ## Double-Check
