@@ -47,7 +47,7 @@ A cheap classifier (Claude Sonnet, low effort) decides the level on every Stop. 
 
 - **Codex** — `gpt-6-astra` at `xhigh` effort; a different model lineage. Runs **with exec** in its own scratch copy of the project (`--sandbox workspace-write`).
 - **Fresh Claude** — a clean `claude -p` context, no MCP. **With exec**: Bash in its own scratch copy, fenced by Claude Code's sandbox, plus edits scoped to that copy; otherwise read-only tools (`Read`/`Grep`/`Glob`).
-- **Grok** *(on by default; `ASSESS_PANEL_GROK=0` disables)* — `grok-4.6` at `xhigh`, its top tier; a third lineage. See [the Grok reviewer](#the-grok-reviewer-on-by-default).
+- **Grok** *(on by default; `ASSESS_PANEL_GROK=0` disables)* — `grok-4.7` at `xhigh`, its top tier; a third lineage. See [the Grok reviewer](#the-grok-reviewer-on-by-default).
 - **Antigravity (`agy`)** *(on by default; `ASSESS_PANEL_AGY=0` disables)* — `gemini-4-argon` at `high`; a fourth lineage (Google Gemini). See [the Antigravity reviewer](#the-antigravity-reviewer-on-by-default).
 - **Pi** *(optional, `ASSESS_PANEL_PI=1`)* — `moonshotai/kimi-k3` at `high` via OpenRouter; a fifth lineage. See [the fifth reviewer](#the-fifth-reviewer-optional).
 
@@ -163,7 +163,7 @@ Shares the machinery. Runs log as `mode: scope` or `mode: consult` — the scrip
 
 ## The Grok reviewer (on by default)
 
-The third lineage — xAI's `grok-4.6` via the [grok CLI](https://x.ai/cli) — is **on by
+The third lineage — xAI's `grok-4.7` via the [grok CLI](https://x.ai/cli) — is **on by
 default**, because it needs only the CLI itself and a one-time `grok login` (or an
 `XAI_API_KEY`). On a machine without them, every panel prints an explicit `>>> SKIPPED`
 naming the cause and continues; `ASSESS_PANEL_GROK=0` turns the reviewer off where that
@@ -172,8 +172,8 @@ is permanent.
 | Variable | Default | |
 |---|---|---|
 | `ASSESS_PANEL_GROK` | *(on)* | `0` turns the reviewer off. An unrecognised value is a loud skip, never a guess. |
-| `ASSESS_GROK_MODEL` | `grok-4.6` | |
-| `ASSESS_GROK_EFFORT` | `xhigh` | grok-4.6's top tier. Unlike pi, the CLI **rejects** a level the model doesn't support instead of clamping, so a bad value is an immediate loud `FAILED`, not a silent downgrade. |
+| `ASSESS_GROK_MODEL` | `grok-4.7` | |
+| `ASSESS_GROK_EFFORT` | `xhigh` | grok-4.7's top tier. Unlike pi, the CLI **rejects** a level the model doesn't support instead of clamping, so a bad value is an immediate loud `FAILED`, not a silent downgrade. |
 | `XAI_API_KEY` | — | Optional; without it grok authenticates from `~/.grok/auth.json`. **Only the grok reviewer sees it** — it is stripped from the environment codex and claude inherit, same as every other provider key. |
 
 **Read-only and hermetic.** It runs with `--sandbox read-only` (an

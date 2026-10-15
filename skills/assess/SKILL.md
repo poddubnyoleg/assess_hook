@@ -54,7 +54,7 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
    default exists for. Only if backgrounding is unavailable, run it in the foreground
    without `ASSESS_PANEL_TIMEOUT` and with the Bash `timeout` at its maximum.
    This runs Codex (a different model), a fresh Claude (clean context, no anchoring),
-   Grok (xAI's grok-4.6 — a third lineage, **on by default**), and Antigravity (`agy`,
+   Grok (xAI's grok-4.7 — a third lineage, **on by default**), and Antigravity (`agy`,
    Google's `gemini-4-argon` — a fourth lineage, **on by default**), in parallel, each told
    to refute — not approve. **Codex and the fresh Claude can EXECUTE**: each works in its
    own throwaway scratch copy of the project (a clone with your uncommitted change
@@ -81,7 +81,7 @@ When invoked with `turbo` (or when `$ARGUMENTS` contains "turbo"):
      panel or none of it; never disable one seat on privacy grounds the others don't face.
      Disable it (a missing CLI, an explicit user choice — not a privacy inference) with
      `ASSESS_PANEL_GROK=0`; override with `ASSESS_GROK_MODEL` / `ASSESS_GROK_EFFORT`
-     (default `grok-4.6` at `xhigh`, its top tier — the CLI rejects a level the model
+     (default `grok-4.7` at `xhigh`, its top tier — the CLI rejects a level the model
      doesn't support rather than clamping, so a bad value fails fast and loud).
 
    - **Antigravity (`agy`)** needs the `agy` CLI signed in (run `agy` once and log in

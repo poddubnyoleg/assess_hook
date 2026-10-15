@@ -65,7 +65,7 @@ echo "Done."
 echo "If not already registered, add the Stop hook once to ~/.claude/settings.json:"
 echo '  {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/stop_assess.py"}]}]}}'
 echo "Codex model/effort are pinned in panel.sh (gpt-6-astra / xhigh; needs codex-cli >= 0.153.1)."
-echo "Grok (grok-4.6 / xhigh) is a DEFAULT third reviewer: it needs the grok CLI"
+echo "Grok (grok-4.7 / xhigh) is a DEFAULT third reviewer: it needs the grok CLI"
 echo "(curl -fsSL https://x.ai/cli/install.sh | bash) plus a one-time \`grok login\`."
 echo "Without them every panel prints a SKIPPED notice naming the cause; set"
 echo "ASSESS_PANEL_GROK=0 to drop the reviewer instead — see 'The Grok reviewer' in README.md."

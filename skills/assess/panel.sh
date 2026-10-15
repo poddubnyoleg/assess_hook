@@ -7,7 +7,7 @@
 #                 a different model lineage. Needs codex-cli >= 0.153.1 for gpt-6-astra.
 #   2. Fresh Claude — clean context, read-only; same lineage, but no anchoring.
 #   3. Grok — ON BY DEFAULT (ASSESS_PANEL_GROK=0 to disable). A third lineage: xAI's
-#                 grok-4.6 at xhigh — its top tier; unlike pi, the grok CLI FAILS FAST on a
+#                 grok-4.7 at xhigh — its top tier; unlike pi, the grok CLI FAILS FAST on a
 #                 level or model it doesn't know, so there is no silent clamp to detect
 #                 (override: ASSESS_GROK_MODEL / ASSESS_GROK_EFFORT). Needs the `grok`
 #                 CLI authenticated (`grok login`, or XAI_API_KEY); when it cannot run it
@@ -107,8 +107,8 @@
 # The grok reviewer (on by default, all vars optional):
 #   ASSESS_PANEL_GROK=0      turn it off. On by default because it needs only the `grok`
 #                            CLI and its login; enabled-but-unavailable is a loud SKIP.
-#   ASSESS_GROK_MODEL        default grok-4.6
-#   ASSESS_GROK_EFFORT       default xhigh (grok-4.6's top tier; the CLI REJECTS a level
+#   ASSESS_GROK_MODEL        default grok-4.7
+#   ASSESS_GROK_EFFORT       default xhigh (grok-4.7's top tier; the CLI REJECTS a level
 #                            the model doesn't support instead of clamping, so a bad value
 #                            surfaces as an immediate FAILED with the error in the log)
 #   XAI_API_KEY              optional; without it grok authenticates via ~/.grok/auth.json
@@ -367,7 +367,7 @@ esac
 # resolves — and then strips — the same variable), and re-exported only inside the
 # grok subshell below, mirroring the ANTHROPIC_API_KEY strip above.
 grok_api_key="${XAI_API_KEY:-}"
-GROK_MODEL="${ASSESS_GROK_MODEL:-grok-4.6}"
+GROK_MODEL="${ASSESS_GROK_MODEL:-grok-4.7}"
 GROK_EFFORT="${ASSESS_GROK_EFFORT:-xhigh}"
 grok_src="${GROK_HOME:-$HOME/.grok}"
 grok_home="$tmp/grok-home"
