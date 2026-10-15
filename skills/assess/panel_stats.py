@@ -351,10 +351,8 @@ def cmd_report(args):
 
     # Relevance — split by mode, never pooled: the modes' verdicts answer different
     # questions (review: "was the finding real"; scope: "did it change the reading";
-    # consult: "did acting on it unblock"), and scope/consult hand each reviewer its
-    # own lens, so their findings are single-source BY DESIGN — pooled, each would
-    # read as a unique catch and the precision column would average incommensurable
-    # signals. A mode missing from this tuple would be counted in the header and then
+    # consult: "did acting on it unblock") — pooled, the precision column would average
+    # incommensurable signals. A mode missing from this tuple would be counted in the header and then
     # silently dropped here — the one silent degradation this report must not have —
     # so every mode panel.sh accepts needs an entry.
     for mname, conf_means, prec_label in (

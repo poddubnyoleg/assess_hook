@@ -463,8 +463,8 @@ class PanelLogTest(unittest.TestCase):
         self.assertIn("Reliability", r.stdout)
 
     def test_relevance_is_split_by_mode_not_pooled(self):
-        # Review's `confirmed` means "real"; scope's means "changed the reading", and
-        # scope lenses make every finding single-source by design. One pooled table
+        # Review's `confirmed` means "real"; scope's means "changed the reading". One
+        # pooled table
         # would rank reviewers on incommensurable signals.
         rid_r = self._seed_run("20260730-100000.21", mode="review")
         rid_s = self._seed_run("20260730-100100.22", mode="scope")

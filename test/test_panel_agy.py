@@ -23,8 +23,8 @@ Claude, and Grok — so the failure modes that matter mirror Grok's:
     non-OpenAI lineage
   - GEMINI_API_KEY / GOOGLE_API_KEY / JETSKI_OAUTH_TOKEN do not leak into the other
     reviewers' environments
-  - in scope and consult modes Antigravity gets its own lens and shares the
-    ASSUMPTIONS / FIRST MOVE slot with the other voices
+  - in scope and consult modes Antigravity gets the same prompt as every other
+    seat — ASSUMPTIONS first before the work, FIRST MOVE last during it
 
 Run:  python3 -m unittest discover -s test
 Against the real binary (needs agy signed in and a free localhost port, i.e. NOT inside
@@ -65,7 +65,7 @@ printf 'AGY-STUB-REVIEW key=[%s] home=[%s] token=[%s] keychain=[%s]\\n' \\
   "$([ -L "${HOME:-}/Library/Keychains" ] && echo yes || echo no)"
 printf 'ARGS: %s\\n' "$*"
 printf 'SETTINGS: %s\\n' "$(cat "${HOME:-}/.gemini/antigravity-cli/settings.json" 2>/dev/null)"
-printf 'LENS: %s\\n' "$(printf '%s' "$prompt" | grep -E '^[0-9]+\\. |^(CONTRAST CASE|FAULT LINE|MINIMAL REDUCER|FIRST MOVE)' | tr '\\n' '|')"
+printf 'LENS: %s\\n' "$(printf '%s' "$prompt" | grep -E '^[0-9]+\\. |^(WHAT|WHY HERE|CHECK) —|FIRST MOVE' | tr '\\n' '|')"
 """
 
 # The panel asks macOS `security` whether agy's keychain item exists. The real binary
@@ -252,23 +252,23 @@ class PanelAgyTest(unittest.TestCase):
 
     # --- scope & consult modes -------------------------------------------
 
-    def test_scope_mode_gives_agy_its_own_lens(self):
+    def test_scope_mode_gives_agy_the_same_prompt_as_the_others(self):
         r = self.run_panel("some request", mode="scope")
-        self.assertIn("only slot ALL FOUR reviewers answer", r.stdout)
+        self.assertIn("FOUR answered", r.stdout)
         lens = self._line(r.stdout, "LENS:")
-        self.assertIn("INVARIANTS", lens)
-        self.assertIn("BLAST RADIUS", lens)
-        self.assertNotIn("MAXIMAL READING", lens)
-        self.assertNotIn("PRE-MORTEM", lens)
-        self.assertNotIn("COMPETING READINGS", lens)
-        self.assertIn("Antigravity: invariants, blast radius", r.stdout)
+        self.assertIn("1. ASSUMPTIONS", lens)
+        self.assertIn("TRACTABILITY", lens)
+        for gone in ("INVARIANTS", "BLAST RADIUS", "MAXIMAL READING", "COMPETING READINGS"):
+            self.assertNotIn(gone, lens)
+        self.assertNotIn("Antigravity: invariants", r.stdout)
 
-    def test_consult_mode_gives_agy_its_own_lens(self):
+    def test_consult_mode_gives_agy_the_same_prompt_as_the_others(self):
         r = self.run_panel("some problem", mode="consult")
         lens = self._line(r.stdout, "LENS:")
-        self.assertIn("CONTRAST CASE", lens)
-        self.assertIn("FAULT LINE", lens)
-        self.assertIn("MINIMAL REDUCER", lens)
+        for heading in ("WHAT —", "WHY HERE —", "CHECK —", "FIRST MOVE"):
+            self.assertIn(heading, lens)
+        for gone in ("CONTRAST CASE", "FAULT LINE", "MINIMAL REDUCER"):
+            self.assertNotIn(gone, lens)
 
     # --- a dead agy is never read as agreement ---------------------------
 

@@ -9,10 +9,9 @@ what makes it one:
 
   - the problem statement is REQUIRED, like scope's request: a consult about
     "(no task description given)" would return confident nonsense
-  - the lenses are DISTINCT per reviewer (cards / shared assumption / lateral),
-    while FIRST MOVE is the one slot all of them share — the design's only
-    cross-lineage comparison, so losing either side of that silently would
-    gut the mode
+  - every reviewer gets the SAME prompt (the decorrelation is the lineages' job,
+    not the question's), carrying the output contract — WHAT / WHY HERE / CHECK
+    per proposal — and FIRST MOVE last, the cheapest cross-lineage comparison
   - the footer reconciles as a MENU, not by survival (review) or union (scope),
     and says out loud that a consult reviews nothing
   - a run in which no foreign lineage delivered still refuses to present
@@ -32,7 +31,7 @@ from pathlib import Path
 PANEL = Path(__file__).resolve().parent.parent / "skills" / "assess" / "panel.sh"
 
 # Each stub copies the prompt it received to a per-reviewer file named by the
-# test env, so lens assertions read what the panel actually sent — codex and
+# test env, so prompt assertions read what the panel actually sent — codex and
 # claude take the prompt on stdin, grok via --prompt-file.
 CODEX_STUB = """#!/usr/bin/env bash
 out=""
@@ -134,46 +133,31 @@ class PanelConsultTest(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("'consult'", r.stderr)
 
-    # --- distinct lenses, one shared slot ----------------------------------
+    # --- one prompt for every seat, FIRST MOVE last ----------------------------
 
-    def test_lenses_are_distinct_and_all_share_first_move(self):
+    def test_every_reviewer_gets_the_same_prompt_with_first_move_last(self):
         r = self.run_panel("the parse test fails with IndexError after 3 attempted fixes")
         self.assertEqual(r.returncode, 0, r.stderr)
         texts = {n: p.read_text() for n, p in self.prompts.items()}
-        # Every reviewer gets the verbatim problem and the evidence, framed as data —
-        # and the domain guard: consult serves data analysis, research and ideation
-        # as much as code, so no lens may assume the problem is software.
-        for n, t in texts.items():
-            self.assertIn("# PROBLEM (verbatim)", t, n)
-            self.assertIn("after 3 attempted fixes", t, n)
-            self.assertIn("IndexError", t, n)
-            self.assertIn("FIRST MOVE", t, n)
-            self.assertIn("do NOT assume it is software", t, n)
-        # The shared-assumption lens carries its open-problem fallback: with no
-        # attempts in evidence (ideation), it attacks the FRAMING instead of
-        # demanding attempts that don't exist.
-        self.assertIn("study the FRAMING instead", texts["claude"])
-        # Each lens is its own: a marker present in exactly one prompt.
-        self.assertIn("EXPERIMENT CARDS", texts["codex"])
-        self.assertNotIn("EXPERIMENT CARDS", texts["claude"])
-        self.assertNotIn("EXPERIMENT CARDS", texts["grok"])
-        self.assertNotIn("EXPERIMENT CARDS", texts["agy"])
-        self.assertIn("SHARED ASSUMPTION", texts["claude"])
-        self.assertNotIn("SHARED ASSUMPTION", texts["codex"])
-        self.assertNotIn("SHARED ASSUMPTION", texts["grok"])
-        self.assertNotIn("SHARED ASSUMPTION", texts["agy"])
-        self.assertIn("LATERAL MOVES", texts["grok"])
-        self.assertNotIn("LATERAL MOVES", texts["codex"])
-        self.assertNotIn("LATERAL MOVES", texts["claude"])
-        self.assertNotIn("LATERAL MOVES", texts["agy"])
-        self.assertIn("BOUNDARY & INVERSION PROBES", texts["agy"])
-        self.assertNotIn("BOUNDARY & INVERSION PROBES", texts["codex"])
-        self.assertNotIn("BOUNDARY & INVERSION PROBES", texts["claude"])
-        self.assertNotIn("BOUNDARY & INVERSION PROBES", texts["grok"])
-        # And none of them is the review or scope prompt by accident.
-        for n, t in texts.items():
-            self.assertNotIn("skeptical senior reviewer", t, n)
-            self.assertNotIn("ASSUMPTIONS — every point the request left open", t, n)
+        # Identical, byte for byte: a seat asked a different question is a lens, and a
+        # lens confounds the seat with its question and dies with its seat.
+        self.assertEqual(1, len(set(texts.values())), sorted(texts))
+        t = texts["codex"]
+        # The verbatim problem and the evidence, framed as data — and the domain guard:
+        # consult serves data analysis, research and ideation as much as code.
+        self.assertIn("# PROBLEM (verbatim)", t)
+        self.assertIn("after 3 attempted fixes", t)
+        self.assertIn("IndexError", t)
+        self.assertIn("do NOT assume it is software", t)
+        # The contract: grounded, testable proposals, and the shared slot LAST.
+        for heading in ("WHAT —", "WHY HERE —", "CHECK —", "FIRST MOVE"):
+            self.assertIn(heading, t)
+        self.assertGreater(t.index("FIRST MOVE"), t.index("CHECK —"))
+        # None of the withdrawn lenses, and not the review or scope prompt by accident.
+        for gone in ("EXPERIMENT CARDS", "SHARED ASSUMPTION", "LATERAL MOVES",
+                     "BOUNDARY & INVERSION PROBES", "MUNDANE", "skeptical senior reviewer",
+                     "ASSUMPTIONS — every point the request left open"):
+            self.assertNotIn(gone, t)
 
     def test_empty_evidence_is_accepted_with_an_explicit_note(self):
         self.artifact.write_text("")
@@ -213,21 +197,17 @@ class PanelConsultTest(unittest.TestCase):
         self.assertIn("Reconcile as a MENU", r.stdout)
         self.assertIn("NARROWER", r.stdout)
 
-    def test_shared_assumption_advice_needs_the_claude_slot_delivered(self):
-        # The SHARED ASSUMPTION heading belongs to the fresh Claude alone. With
-        # Claude dead the menu still prints (codex+grok+agy are foreign voices), but
-        # ranking advice about a section no reviewer produced would send the
-        # caller hunting for it — or read its absence as "no shared assumption
-        # found", the dead-reviewer-as-agreement failure.
+    def test_menu_advice_names_no_slot_a_single_seat_owns(self):
+        # With one prompt for every seat there is no heading only one reviewer produces,
+        # so the footer ranks by convergence, not by a named section — and a dead fresh
+        # Claude changes none of it.
+        r = self.run_panel("the parse test fails")
+        self.assertNotIn("SHARED ASSUMPTION", r.stdout)
+        self.assertIn("two lineages propose independently", r.stdout)
         self._stub("claude", CLAUDE_STUB_FAIL)
         r = self.run_panel("the parse test fails")
         self.assertIn("Reconcile as a MENU", r.stdout)
-        self.assertNotIn("SHARED ASSUMPTION finding outranks", r.stdout)
-        # And with all reviewers alive it does print (pinned against the
-        # healthy-path test above going stale on this line).
-        self._stub("claude", CLAUDE_STUB)
-        r = self.run_panel("the parse test fails")
-        self.assertIn("SHARED ASSUMPTION finding outranks", r.stdout)
+        self.assertIn("two lineages propose independently", r.stdout)
 
     # --- telemetry ----------------------------------------------------------
 

@@ -43,7 +43,7 @@ printf 'CLAUDE-STUB-REVIEW xai=[%s]\\n' "${XAI_API_KEY:-unset}"
 """
 
 # Reports what it was invoked with. The prompt arrives via --prompt-file (NOT stdin —
-# reading stdin here would block on the suite's inherited descriptor), so the lens
+# reading stdin here would block on the suite's inherited descriptor), so the prompt
 # check greps the file the panel wrote.
 GROK_STUB = """#!/usr/bin/env bash
 args="$*"
@@ -54,8 +54,8 @@ printf 'GROK-STUB-REVIEW key=[%s] home=[%s] authjson=[%s]\\n' \\
   "${XAI_API_KEY:-unset}" "${GROK_HOME:-unset}" \\
   "$([ -e "${GROK_HOME:-/nonexistent}/auth.json" ] && echo yes || echo no)"
 printf 'ARGS: %s\\n' "$args"
-[ -n "$pf" ] && printf 'LENS: %s\\n' "$(grep -o -e 'MAXIMAL READING' -e 'PRE-MORTEM' \\
-  -e 'UNDERLYING QUESTION' -e 'COMPETING READINGS' "$pf" | sort -u | tr '\\n' ' ')"
+[ -n "$pf" ] && printf 'LENS: %s\\n' "$(grep -o -e 'ASSUMPTIONS' -e 'TRACTABILITY' \\
+  -e 'MAXIMAL READING' -e 'COMPETING READINGS' -e 'WHY HERE' "$pf" | sort -u | tr '\\n' ' ')"
 exit 0
 """
 
@@ -198,21 +198,20 @@ class PanelGrokTest(unittest.TestCase):
 
     # --- scope mode -------------------------------------------------------
 
-    def test_scope_mode_gives_grok_its_own_lens(self):
+    def test_scope_mode_gives_grok_the_same_prompt_as_the_others(self):
         r = self.run_panel("some request", mode="scope")
         # Codex + claude + grok answered, so assumptions diff across three lists.
-        self.assertIn("only slot ALL THREE reviewers answer", r.stdout)
-        # Its lens is the extent one — not a copy of any other reviewer's.
+        self.assertIn("THREE answered", r.stdout)
         lens = next(l for l in r.stdout.splitlines() if l.startswith("LENS:"))
-        self.assertIn("MAXIMAL READING", lens)
-        self.assertNotIn("PRE-MORTEM", lens)
-        self.assertNotIn("UNDERLYING QUESTION", lens)
+        self.assertIn("ASSUMPTIONS", lens)
+        self.assertIn("TRACTABILITY", lens)
+        self.assertNotIn("MAXIMAL READING", lens)
         self.assertNotIn("COMPETING READINGS", lens)
 
-    def test_scope_footer_names_groks_slots(self):
+    def test_scope_footer_names_no_per_seat_slots(self):
         r = self.run_panel("some request", mode="scope")
-        self.assertIn("Grok: minimal/maximal reading, default trap, stopping rule",
-                      r.stdout)
+        self.assertNotIn("Grok: minimal/maximal reading", r.stdout)
+        self.assertIn("same headings", r.stdout)
 
     # --- a dead grok is never read as agreement ---------------------------
 

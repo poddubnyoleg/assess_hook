@@ -156,34 +156,33 @@ entry points, `review` being `/assess turbo`'s.
   That is an **incomplete panel** — never "no ambiguity found" or "the panel's whole menu".
   Say so. (Partial output printed before a kill is still readable and still credits that
   reviewer.)
-- Do NOT rewrite the reviewer instructions. The lenses are fixed inside `panel.sh` on
-  purpose; you supply the input, never the question they are asked.
+- Do NOT rewrite the reviewer instructions. The prompt is fixed inside `panel.sh` on
+  purpose, and it is the same for every seat; you supply the input, never the question
+  they are asked.
 
-The lenses differ by moment, and differ from each other on purpose — asked the same
-question, each extra reviewer would cost another call for no additional voice:
+Every seat gets the **same prompt** for the moment — the panel's decorrelation comes from
+the model lineages and the fresh context, not from asking each seat something different
+(per-seat lenses were tried and withdrawn; the README has the record):
 
-| | **before** | **during** |
-|---|---|---|
-| Codex | a six-slot interpretation schema — deliverable, underlying question, assumptions, out of scope, done condition, most likely failure | experiment cards — distinct hypotheses, each with a disconfirmer and the cheapest discriminating probe, ranked by information per cost |
-| fresh Claude | assumptions, then a pre-mortem — wrong question, already done, tractability, hidden cost, misreading risk | the shared assumption of the failed attempts, attacked; on an open problem, the framing instead |
-| Grok *(default on; `ASSESS_PANEL_GROK=0` disables)* | the request's extent — minimal and maximal reading, where a worker's default lands, the stopping rule, the spillover | lateral moves from outside the current approach, grounded in what the directory contains |
-| Antigravity (`agy`) *(default on; `ASSESS_PANEL_AGY=0` disables)* | invariants & coupling — invariants that must hold, blast radius, implicit interface, edge & degradation cases, verification gap | boundary & inversion probes — nearest contrast case, exact fault line where the invariant breaks, minimal reducer |
-| pi *(opt-in, `ASSESS_PANEL_PI=1`)* | the competing readings, and the single question that discriminates between them | the mundane causes a clever search skips — stale state, wrong branch or dataset, a filter that never took effect, join fan-out, units |
-| **shared slot** | **ASSUMPTIONS**, answered first — the only cross-lineage comparison available | **FIRST MOVE**, answered last — a first move is a conclusion, worthless un-grounded |
+- **before**: eight headings, **ASSUMPTIONS first** — then deliverable, wrong question,
+  already done, tractability, out of scope & spillover, done condition, most likely
+  failure. No reviewer may propose an approach.
+- **during**: 2–4 ways forward, each as WHAT / WHY HERE / CHECK, then **FIRST MOVE last** —
+  the single cheapest next action, an action rather than a ranking of the proposals.
 
 ### 3. Reconcile
 
 **Before → by UNION.** There is no artifact to check a finding against and no evidence to
 kill one with, so nothing is filtered for lacking proof:
 
-- **Diff the ASSUMPTIONS lists first** — the only slot every reviewer answers.
+- **Diff the ASSUMPTIONS lists first** — the slot where an ambiguous request shows.
 - **Assumptions that diverge are the deliverable.** Independent readers filled the same
   blank differently, so the request is ambiguous there. Put it to the user as an explicit
   choice. Do NOT pick one silently and do NOT average them into a compromise reading —
   resolving it yourself throws away the only thing the panel produced.
-- **Every other slot is single-source by design.** "The others didn't raise it" is not
-  evidence against it; they were never asked. Check each against your own reading, which is
-  the last voice.
+- **Every slot compares across lineages.** Agreement is the reading the request supports,
+  not a verdict on it; a point one reviewer alone raises is still worth a sentence. Your own
+  reading is the last voice.
 - **WRONG QUESTION / TRACTABILITY / ALREADY DONE hits outrank everything** — they can make
   the task unnecessary or impossible, and they expire the moment you start.
 
@@ -195,8 +194,8 @@ kill one with, so nothing is filtered for lacking proof:
   unblocks; divergent suggestions are breadth, not disagreement.
 - **Run at least one proposed probe before your next speculative fix.** Binding: reading
   the menu, nodding, and resuming your own loop spends the panel on nothing.
-- **A SHARED ASSUMPTION finding outranks the individual cards** — it names the frame
-  everything else was searched inside. Test it even when a cheaper card looks promising.
+- **A move two lineages propose independently, anywhere in the menu,** is the same
+  convergence signal as FIRST MOVE one level down — it outranks the rest.
 
 ### 4. Close the telemetry loop
 

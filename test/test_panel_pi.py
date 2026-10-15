@@ -56,7 +56,7 @@ printf 'PI-STUB-REVIEW key=[%s] agentdir=[%s] authjson=[%s]\\n' \
   "$([ -f "${PI_CODING_AGENT_DIR:-/nonexistent}/auth.json" ] && echo yes || echo no)"
 printf 'ARGS: %s\\n' "$*"
 printf 'LENS: %s\\n' "$(printf '%s' "$prompt" \
-  | grep -o -e 'COMPETING READINGS' -e 'PRE-MORTEM' -e 'UNDERLYING QUESTION' \
+  | grep -o -e 'COMPETING READINGS' -e 'ASSUMPTIONS' -e 'TRACTABILITY' \
   | sort -u | tr '\\n' ' ')"
 """
 
@@ -170,8 +170,8 @@ class PanelPiTest(unittest.TestCase):
 
     def test_disabled_scope_mode_keeps_two_reviewer_wording(self):
         r = self.run_panel("some request", mode="scope")
-        self.assertIn("only slot BOTH reviewers answer", r.stdout)
-        self.assertNotIn("ALL THREE", r.stdout)
+        self.assertIn("TWO answered", r.stdout)
+        self.assertNotIn("THREE answered", r.stdout)
 
     # --- enabled but unavailable: always loud ---------------------------
 
@@ -223,18 +223,17 @@ class PanelPiTest(unittest.TestCase):
         self.assertIn("2-1 split is NOT a vote", r.stdout)
         self.assertNotIn("both say fine", r.stdout)
 
-    def test_scope_mode_gives_pi_its_own_lens(self):
+    def test_scope_mode_gives_pi_the_same_prompt_as_the_others(self):
         self._stub("pi", PI_STUB)
         r = self.run_panel("some request", mode="scope",
                            env={"ASSESS_PANEL_PI": "1", "OPENROUTER_API_KEY": "k"})
-        self.assertIn("only slot ALL THREE reviewers answer", r.stdout)
-        # Its lens is the competing-readings one, not a second copy of either other
-        # lens — three reviewers asked the same question would cost three calls for
-        # one voice, which is the failure the split exists to prevent.
+        self.assertIn("THREE answered", r.stdout)
+        # One prompt for every seat: pi answers the same headings as codex and claude;
+        # the panel's decorrelation is its lineage, not a question of its own.
         lens = next(l for l in r.stdout.splitlines() if l.startswith("LENS:"))
-        self.assertIn("COMPETING READINGS", lens)
-        self.assertNotIn("PRE-MORTEM", lens)
-        self.assertNotIn("UNDERLYING QUESTION", lens)
+        self.assertIn("ASSUMPTIONS", lens)
+        self.assertIn("TRACTABILITY", lens)
+        self.assertNotIn("COMPETING READINGS", lens)
 
     def test_reviewer_is_read_only_and_hermetic(self):
         self._stub("pi", PI_STUB)
@@ -491,8 +490,8 @@ done
                            env={"ASSESS_PANEL_PI": "1", "OPENROUTER_API_KEY": "k",
                                 "ASSESS_PANEL_TIMEOUT": "2"})
         self.assertIn("TIMED OUT", r.stdout)
-        self.assertIn("only slot BOTH reviewers answer", r.stdout)
-        self.assertNotIn("ALL THREE", r.stdout)
+        self.assertIn("TWO answered", r.stdout)
+        self.assertNotIn("THREE answered", r.stdout)
 
     def test_failed_pi_does_not_switch_the_review_footer(self):
         self._stub("pi", PI_STUB_FAILS)
