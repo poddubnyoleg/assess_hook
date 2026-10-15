@@ -60,8 +60,23 @@ import re
 import subprocess
 
 
-def approve():
+SPEAK_SCRIPT = os.path.expanduser("~/.claude/hooks/speak_done.sh")
+
+
+def approve(speak=True):
     print(json.dumps({"decision": "approve"}))
+    # Optional voice summary of the finished turn (SPEAK_SCRIPT, if installed),
+    # detached so Stop doesn't wait on it. Only on a FINAL approve: a block
+    # continues the turn, so speaking there would announce unfinished work.
+    # Interactive tabs only — any `claude -p` run (classifier, panel, scripts)
+    # has entrypoint sdk-cli.
+    if (speak and os.environ.get("CLAUDE_CODE_ENTRYPOINT") != "sdk-cli"
+            and os.path.exists(SPEAK_SCRIPT)):
+        subprocess.Popen(
+            ["bash", SPEAK_SCRIPT, d.get("cwd", ""),
+             d.get("last_assistant_message") or "Готово."],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, start_new_session=True)
     sys.exit(0)
 
 
@@ -465,7 +480,7 @@ transcript_path = d.get("transcript_path", "")
 # launched by panel.sh / the classifier carries ASSESS_SKIP_HOOK=1, so detect it and
 # get out of the way immediately — never block (or re-classify) a nested assess run.
 if os.environ.get("ASSESS_SKIP_HOOK") == "1":
-    approve()
+    approve(speak=False)
 
 # 0b. We already blocked once in this stop-chain. stop_hook_active is True on
 # every Stop that follows a stop-hook block, so approving here caps the hook at
@@ -484,7 +499,7 @@ if transcript_path:
             tail = f.read().decode("utf-8", errors="replace")
         for agent_name in HEADLESS_AGENTS:
             if f'"agentSetting": "{agent_name}"' in tail or f'"agentSetting":"{agent_name}"' in tail:
-                approve()
+                approve(speak=False)
     except Exception:
         pass
 
@@ -498,7 +513,7 @@ if transcript_path:
 # Once matched, every later Stop in the session approves; the sit session is
 # not a coding session, so that is the intent. Design: pneuma-agent/docs/bare_bones.md.
 if os.environ.get("PNEUMA_SIT") == "1":
-    approve()
+    approve(speak=False)
 if transcript_path:
     try:
         with open(transcript_path, "rb") as f:
@@ -506,7 +521,7 @@ if transcript_path:
             f.seek(max(0, f.tell() - 5_000_000))
             tail = f.read().decode("utf-8", errors="replace")
         if re.search(r'"command":\s*"(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:uv run\s+)?(?:\S*/)?pneuma(?:\.py)? (?:turn|music)\b', tail):
-            approve()
+            approve(speak=False)
     except Exception:
         pass
 
@@ -543,7 +558,7 @@ if prompted:
 # message; accepted because agents notified 100% of the time in field data
 # and the bg-Bash arm (where orphans are real) is already edit-gated.
 if pending_bg:
-    approve()
+    approve(speak=False)
 
 # 3. No tool calls at all this cycle -> conversation, not shipped work. There is
 # no artifact to review, however long or technical the prose reads — a recap of
